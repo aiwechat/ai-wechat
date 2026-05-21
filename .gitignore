@@ -31,3 +31,6 @@ config_secret.py
 .idea/
 .DS_Store
 Thumbs.db
+
+# Personal files
+Agent.md
