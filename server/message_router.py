@@ -11,6 +11,8 @@ individual handlers stay short.
 from __future__ import annotations
 
 import logging
+import secrets
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from common.protocol import (
@@ -21,8 +23,10 @@ from common.protocol import (
     make_error,
     make_message,
 )
+from server.ai_service import AIResponder, AIRateLimiter, AIService, AIServiceError, extract_ai_prompt
 from server.database import ChatDatabase
 from server.group_manager import GroupManager
+from server.moderation import ModerationService
 from server.user_manager import ClientSession, UserManager
 
 
@@ -58,10 +62,20 @@ class MessageRouter:
         db: ChatDatabase,
         user_manager: UserManager,
         group_manager: GroupManager,
+        *,
+        ai_service: AIResponder | None = None,
+        moderation: ModerationService | None = None,
+        ai_workers: int = 4,
+        ai_cooldown_seconds: float = 3.0,
     ) -> None:
         self.db = db
         self.users = user_manager
         self.groups = group_manager
+        self.ai_service = ai_service or AIService()
+        self.moderation = moderation or ModerationService()
+        self.ai_rate_limiter = AIRateLimiter(cooldown_seconds=ai_cooldown_seconds)
+        self._ai_executor = ThreadPoolExecutor(max_workers=ai_workers, thread_name_prefix="AIReply")
+        self._ensure_assistant_user()
         self._handlers: dict[MessageType, Callable[[ClientSession, ProtocolMessage], None]] = {
             MessageType.REGISTER: self._handle_register,
             MessageType.LOGIN: self._handle_login,
@@ -74,6 +88,9 @@ class MessageRouter:
             MessageType.LEAVE_GROUP: self._handle_leave_group,
             MessageType.HISTORY_REQUEST: self._handle_history_request,
         }
+
+    def shutdown(self) -> None:
+        self._ai_executor.shutdown(wait=False, cancel_futures=True)
 
     # --- public entrypoint -----------------------------------------------
 
@@ -187,6 +204,8 @@ class MessageRouter:
         self._require_auth(session, message)
         receiver = message.receiver or _require_str(message.payload, "receiver", message.request_id)
         content = _require_str(message.payload, "content", message.request_id)
+        if not self._moderate_or_warn(session, content, message):
+            return
 
         if receiver == session.username:
             raise ProtocolError(
@@ -248,6 +267,8 @@ class MessageRouter:
         self._require_auth(session, message)
         group_id = message.group_id or _require_str(message.payload, "group_id", message.request_id)
         content = _require_str(message.payload, "content", message.request_id)
+        if not self._moderate_or_warn(session, content, message, group_id=group_id):
+            return
 
         members = self.groups.member_usernames(group_id)
         if not members:
@@ -290,6 +311,15 @@ class MessageRouter:
             if target is None:
                 continue
             target.send(forward)
+
+        ai_prompt = extract_ai_prompt(content)
+        if ai_prompt is not None:
+            self._schedule_ai_reply(
+                requester=session.username or "",
+                group_id=group_id,
+                prompt=ai_prompt,
+                request_id=message.request_id,
+            )
 
     # --- group handlers --------------------------------------------------
 
@@ -441,3 +471,107 @@ class MessageRouter:
             if peer is exclude:
                 continue
             peer.send(notification)
+
+    def _moderate_or_warn(
+        self,
+        session: ClientSession,
+        content: str,
+        message: ProtocolMessage,
+        *,
+        group_id: str | None = None,
+    ) -> bool:
+        result = self.moderation.check(content)
+        if result.allowed:
+            return True
+
+        session.send(
+            make_message(
+                MessageType.MODERATION_WARNING,
+                sender="server",
+                receiver=session.username,
+                group_id=group_id,
+                payload={
+                    "action": result.action,
+                    "reason": result.reason,
+                    "message": "消息包含违规内容，已被拦截。",
+                    "matched_words": list(result.matched_words),
+                },
+                request_id=message.request_id,
+            )
+        )
+        return False
+
+    def _schedule_ai_reply(self, *, requester: str, group_id: str, prompt: str, request_id: str) -> None:
+        key = f"{group_id}:{requester}"
+        if not self.ai_rate_limiter.allow(key):
+            session = self.users.get_session(requester)
+            if session is not None:
+                session.send(
+                    make_message(
+                        MessageType.MODERATION_WARNING,
+                        sender="server",
+                        receiver=requester,
+                        group_id=group_id,
+                        payload={
+                            "action": "rate_limited",
+                            "reason": "too many AI requests",
+                            "message": "AI 请求过于频繁，请稍后再试。",
+                        },
+                        request_id=request_id,
+                    )
+                )
+            return
+
+        future = self._ai_executor.submit(self._build_ai_reply, requester, group_id, prompt)
+        future.add_done_callback(lambda done: self._send_ai_reply(done, group_id, request_id))
+
+    def _build_ai_reply(self, requester: str, group_id: str, prompt: str) -> str:
+        try:
+            return self.ai_service.answer(prompt, username=requester, group_id=group_id)
+        except AIServiceError as exc:
+            logger.warning("AI reply failed for group %s: %s", group_id, exc)
+            return "AI 服务暂时不可用，请稍后再试。"
+        except Exception:
+            logger.exception("unexpected AI reply error for group %s", group_id)
+            return "AI 服务暂时不可用，请稍后再试。"
+
+    def _send_ai_reply(self, future, group_id: str, request_id: str) -> None:  # noqa: ANN001 - Future callback
+        try:
+            content = future.result()
+        except Exception:
+            logger.exception("AI future failed before producing a fallback")
+            content = "AI 服务暂时不可用，请稍后再试。"
+
+        record = self.db.save_message(
+            message_type=MessageType.AI_RESPONSE.value,
+            sender=self.ai_service.assistant_name,
+            group_id=group_id,
+            content=content,
+            payload={"content": content, "assistant": self.ai_service.assistant_name},
+        )
+        response = make_message(
+            MessageType.GROUP_MSG,
+            sender=self.ai_service.assistant_name,
+            group_id=group_id,
+            payload={
+                "content": content,
+                "message_id": record["message_id"],
+                "created_at": record["created_at"],
+                "ai": True,
+            },
+            request_id=request_id,
+            meta={"ai_response": True},
+        )
+        for member in self.groups.member_usernames(group_id):
+            target = self.users.get_session(member)
+            if target is not None:
+                target.send(response)
+
+    def _ensure_assistant_user(self) -> None:
+        assistant_name = self.ai_service.assistant_name
+        if self.db.get_user(assistant_name) is not None:
+            return
+        try:
+            self.db.create_user(assistant_name, secrets.token_urlsafe(32), display_name=assistant_name)
+        except ValueError:
+            pass

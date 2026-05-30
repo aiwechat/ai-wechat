@@ -25,6 +25,8 @@ from server.database import DEFAULT_DB_PATH, init_db
 from server.group_manager import GroupManager
 from server.heartbeat import HeartbeatMonitor
 from server.message_router import MessageRouter
+from server.ai_service import AIResponder
+from server.moderation import ModerationService
 from server.user_manager import ClientSession, UserManager
 
 
@@ -47,6 +49,10 @@ class ChatServer:
         heartbeat_timeout: float = 60.0,
         heartbeat_interval: float = 15.0,
         recv_timeout: float | None = 30.0,
+        ai_service: AIResponder | None = None,
+        moderation: ModerationService | None = None,
+        ai_workers: int = 4,
+        ai_cooldown_seconds: float = 3.0,
     ) -> None:
         self.host = host
         self.port = port
@@ -56,7 +62,15 @@ class ChatServer:
         self.db = init_db(db_path)
         self.users = UserManager(self.db)
         self.groups = GroupManager(self.db)
-        self.router = MessageRouter(self.db, self.users, self.groups)
+        self.router = MessageRouter(
+            self.db,
+            self.users,
+            self.groups,
+            ai_service=ai_service,
+            moderation=moderation,
+            ai_workers=ai_workers,
+            ai_cooldown_seconds=ai_cooldown_seconds,
+        )
         self.heartbeat = HeartbeatMonitor(
             self.users,
             timeout_seconds=heartbeat_timeout,
@@ -100,6 +114,7 @@ class ChatServer:
         logger.info("stopping chat server")
         self._stop_event.set()
         self.heartbeat.stop(join_timeout=join_timeout)
+        self.router.shutdown()
 
         sock = self._server_sock
         self._server_sock = None

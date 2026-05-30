@@ -16,6 +16,13 @@ from server.server import ChatServer
 from tests._server_helpers import TestClient, assert_no_error, free_port
 
 
+class FakeAIService:
+    assistant_name = "AI助手"
+
+    def answer(self, prompt: str, *, username: str | None = None, group_id: str | None = None) -> str:
+        return f"AI reply to {username} in {group_id}: {prompt}"
+
+
 class ServerTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -36,6 +43,11 @@ class ServerTestCase(unittest.TestCase):
 
     def connect(self, **kwargs) -> TestClient:
         return TestClient("127.0.0.1", self.port, **kwargs)
+
+    def _setup_users(self, *usernames: str) -> None:
+        for name in usernames:
+            with self.connect() as c:
+                c.register(name, f"{name}-pw")
 
 
 class AuthFlowTest(ServerTestCase):
@@ -157,11 +169,6 @@ class PrivateMessageTest(ServerTestCase):
 
 
 class GroupChatTest(ServerTestCase):
-    def _setup_users(self, *usernames: str) -> None:
-        for name in usernames:
-            with self.connect() as c:
-                c.register(name, f"{name}-pw")
-
     def test_create_join_and_broadcast(self) -> None:
         self._setup_users("alice", "bob", "carol")
 
@@ -229,6 +236,83 @@ class GroupChatTest(ServerTestCase):
             resp = outsider.recv()
             self.assertEqual(resp.type, MessageType.ERROR)
             self.assertEqual(resp.payload["error_code"], ErrorCode.AUTH_FAILED.value)
+
+    def test_bad_group_message_is_blocked_with_warning(self) -> None:
+        self._setup_users("alice", "bob")
+        with self.connect() as alice, self.connect() as bob:
+            alice.login("alice", "alice-pw")
+            bob.login("bob", "bob-pw")
+            alice.send(
+                make_message(
+                    MessageType.CREATE_GROUP,
+                    payload={"name": "moderated", "group_id": "mod-g1"},
+                )
+            )
+            alice.recv_of_type(MessageType.CREATE_GROUP)
+            bob.send(make_message(MessageType.JOIN_GROUP, payload={"group_id": "mod-g1"}))
+            bob.recv_of_type(MessageType.JOIN_GROUP)
+
+            alice.send(
+                make_message(
+                    MessageType.GROUP_MSG,
+                    group_id="mod-g1",
+                    payload={"content": "这里包含违规词1"},
+                )
+            )
+
+            warning = alice.recv_of_type(MessageType.MODERATION_WARNING)
+            self.assertEqual(warning.payload["action"], "block")
+            self.assertIn("违规词1", warning.payload["matched_words"])
+            self.assertEqual(self.server.db.get_group_history("mod-g1"), [])
+
+
+class AIFeatureTest(ServerTestCase):
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmpdir.name) / "chat.db"
+        self.server = ChatServer(
+            host="127.0.0.1",
+            port=free_port(),
+            db_path=self.db_path,
+            heartbeat_timeout=2.0,
+            heartbeat_interval=0.5,
+            recv_timeout=1.0,
+            ai_service=FakeAIService(),
+            ai_cooldown_seconds=0.0,
+        )
+        self.port = self.server.start()
+
+    def test_group_ai_mention_sends_async_assistant_reply(self) -> None:
+        self._setup_users("alice", "bob")
+        with self.connect() as alice, self.connect() as bob:
+            alice.login("alice", "alice-pw")
+            bob.login("bob", "bob-pw")
+            alice.send(
+                make_message(
+                    MessageType.CREATE_GROUP,
+                    payload={"name": "ai-room", "group_id": "ai-g1"},
+                )
+            )
+            alice.recv_of_type(MessageType.CREATE_GROUP)
+            bob.send(make_message(MessageType.JOIN_GROUP, payload={"group_id": "ai-g1"}))
+            bob.recv_of_type(MessageType.JOIN_GROUP)
+
+            alice.send(
+                make_message(
+                    MessageType.GROUP_MSG,
+                    group_id="ai-g1",
+                    payload={"content": "@AI 请解释一下 TCP 和 UDP 的区别"},
+                )
+            )
+
+            user_message = bob.recv_of_type(MessageType.GROUP_MSG)
+            self.assertEqual(user_message.sender, "alice")
+            self.assertEqual(user_message.payload["content"], "@AI 请解释一下 TCP 和 UDP 的区别")
+
+            ai_reply = bob.recv_of_type(MessageType.GROUP_MSG)
+            self.assertEqual(ai_reply.sender, "AI助手")
+            self.assertTrue(ai_reply.payload["ai"])
+            self.assertIn("TCP 和 UDP", ai_reply.payload["content"])
 
 
 class HeartbeatTest(ServerTestCase):
