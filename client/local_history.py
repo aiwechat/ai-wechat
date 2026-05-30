@@ -22,6 +22,7 @@ class LocalHistoryItem:
     target: str
     sender: str | None
     content: str
+    message_id: str | None = None
     timestamp: str | None = None
     raw: ProtocolMessage | dict[str, Any] | None = None
 
@@ -32,6 +33,7 @@ class LocalHistory:
     def __init__(self, limit_per_chat: int = 200) -> None:
         self.limit_per_chat = limit_per_chat
         self._items: dict[HistoryKey, Deque[LocalHistoryItem]] = {}
+        self._message_ids: dict[HistoryKey, set[str]] = {}
 
     def add_protocol_message(
         self,
@@ -46,10 +48,12 @@ class LocalHistory:
                 target=target,
                 sender=message.sender,
                 content=self._content_from_payload(message.payload),
-                timestamp=message.timestamp,
+                message_id=self._message_id_from_payload(message.payload),
+                timestamp=self._timestamp_from_payload(message.payload, message.timestamp),
                 raw=message,
             )
-            self._append(("private", target), item)
+            if not self._append(("private", target), item):
+                return None
             return item
 
         if message.type == MessageType.GROUP_MSG:
@@ -59,10 +63,12 @@ class LocalHistory:
                 target=target,
                 sender=message.sender,
                 content=self._content_from_payload(message.payload),
-                timestamp=message.timestamp,
+                message_id=self._message_id_from_payload(message.payload),
+                timestamp=self._timestamp_from_payload(message.payload, message.timestamp),
                 raw=message,
             )
-            self._append(("group", target), item)
+            if not self._append(("group", target), item):
+                return None
             return item
 
         return None
@@ -79,6 +85,26 @@ class LocalHistory:
         names and ignores rows that cannot be classified.
         """
 
+        raw_messages = message.payload.get("messages", [])
+        if not isinstance(raw_messages, list):
+            return []
+
+        items: list[LocalHistoryItem] = []
+        for row in raw_messages:
+            if not isinstance(row, dict):
+                continue
+            item = self._item_from_history_row(row, message, current_user)
+            if item is None:
+                continue
+            items.append(item)
+        return items
+
+    def cache_history_response(
+        self,
+        message: ProtocolMessage,
+        *,
+        current_user: str | None = None,
+    ) -> list[LocalHistoryItem]:
         raw_messages = message.payload.get("messages", [])
         if not isinstance(raw_messages, list):
             return []
@@ -115,10 +141,17 @@ class LocalHistory:
     ) -> list[str]:
         return [self.format_item(item, current_user=current_user) for item in items]
 
-    def _append(self, key: HistoryKey, item: LocalHistoryItem) -> None:
+    def _append(self, key: HistoryKey, item: LocalHistoryItem) -> bool:
+        if item.message_id:
+            message_ids = self._message_ids.setdefault(key, set())
+            if item.message_id in message_ids:
+                return False
+            message_ids.add(item.message_id)
+
         if key not in self._items:
             self._items[key] = deque(maxlen=self.limit_per_chat)
         self._items[key].append(item)
+        return True
 
     def _recent(self, key: HistoryKey, limit: int | None) -> list[LocalHistoryItem]:
         items = list(self._items.get(key, ()))
@@ -159,6 +192,7 @@ class LocalHistory:
             target=target,
             sender=str(sender) if sender is not None else None,
             content=self._content_from_history_row(row),
+            message_id=str(row["message_id"]) if row.get("message_id") is not None else None,
             timestamp=row.get("created_at") or row.get("timestamp"),
             raw=row,
         )
@@ -174,3 +208,11 @@ class LocalHistory:
     def _content_from_payload(self, payload: dict[str, Any]) -> str:
         content = payload.get("content", "")
         return str(content)
+
+    def _message_id_from_payload(self, payload: dict[str, Any]) -> str | None:
+        message_id = payload.get("message_id")
+        return str(message_id) if message_id is not None else None
+
+    def _timestamp_from_payload(self, payload: dict[str, Any], fallback: str | None) -> str | None:
+        timestamp = payload.get("created_at") or payload.get("timestamp") or fallback
+        return str(timestamp) if timestamp is not None else None

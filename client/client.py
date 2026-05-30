@@ -60,6 +60,7 @@ class ChatClient:
         sock.settimeout(SOCKET_TIMEOUT_SECONDS)
         self.sock = sock
         self.state.connected = True
+        self.state.user_status.clear()
         self.receiver = Receiver(
             sock,
             self.handle_message,
@@ -71,6 +72,8 @@ class ChatClient:
 
     def disconnect(self) -> None:
         self.state.connected = False
+        self.state.login_confirmed = False
+        self.state.user_status.clear()
         if self.receiver is not None:
             self.receiver.stop()
             self.receiver = None
@@ -124,9 +127,7 @@ class ChatClient:
             receiver=receiver,
             payload={"content": content},
         )
-        request_id = self.send_message(message)
-        self.history.add_protocol_message(message, current_user=self.state.username)
-        return request_id
+        return self.send_message(message)
 
     def send_group(self, group_id: str, content: str) -> str:
         message = make_message(
@@ -135,9 +136,7 @@ class ChatClient:
             group_id=group_id,
             payload={"content": content},
         )
-        request_id = self.send_message(message)
-        self.history.add_protocol_message(message, current_user=self.state.username)
-        return request_id
+        return self.send_message(message)
 
     def create_group(self, name: str) -> str:
         return self.send_message(
@@ -202,8 +201,14 @@ class ChatClient:
             self._handle_error(message)
             return
 
-        if message.type == MessageType.LOGIN:
+        if message.type == MessageType.REGISTER:
+            self._handle_register_response(message)
+        elif message.type == MessageType.LOGIN:
             self._handle_login_response(message)
+        elif message.type == MessageType.LOGOUT:
+            self._handle_logout_response(message)
+        elif message.type == MessageType.HEARTBEAT:
+            self._handle_heartbeat_response(message)
         elif message.type in {MessageType.PRIVATE_MSG, MessageType.GROUP_MSG}:
             item = self.history.add_protocol_message(message, current_user=self.state.username)
             if item is not None:
@@ -215,10 +220,13 @@ class ChatClient:
         elif message.type in {MessageType.CREATE_GROUP, MessageType.JOIN_GROUP, MessageType.LEAVE_GROUP}:
             self._handle_group_response(message)
 
-        print(f"received {message.type.value}: {message.payload}")
+        elif message.type not in {MessageType.PRIVATE_MSG, MessageType.GROUP_MSG}:
+            print(f"received {message.type.value}: {message.payload}")
 
     def handle_disconnect(self, reason: str) -> None:
         self.state.connected = False
+        self.state.login_confirmed = False
+        self.state.user_status.clear()
         self.sock = None
         print(f"connection closed: {reason}")
 
@@ -234,15 +242,43 @@ class ChatClient:
         text = message.payload.get("message", "")
         print(f"error {error_code}: {text}")
 
+    def _handle_register_response(self, message: ProtocolMessage) -> None:
+        username = message.payload.get("username") or message.receiver
+        display_name = message.payload.get("display_name") or username
+        print(f"registered: {username} ({display_name})")
+
     def _handle_login_response(self, message: ProtocolMessage) -> None:
         username = self._pending_login.pop(message.request_id, None)
         username = username or message.payload.get("username") or message.sender
         if username:
             self.state.username = str(username)
         self.state.login_confirmed = True
+        if self.state.username:
+            self.state.user_status[self.state.username] = "online"
+
+        online_users = message.payload.get("online_users", [])
+        if isinstance(online_users, list):
+            for user in online_users:
+                self.state.user_status[str(user)] = "online"
+        print(f"logged in as {self.state.username}")
+
+    def _handle_logout_response(self, message: ProtocolMessage) -> None:
+        username = message.payload.get("username") or self.state.username
+        if username:
+            self.state.user_status[str(username)] = "offline"
+        if username == self.state.username:
+            self.state.username = None
+            self.state.login_confirmed = False
+        print(f"logged out: {username or '-'}")
+
+    def _handle_heartbeat_response(self, message: ProtocolMessage) -> None:
+        print(f"heartbeat ok: seq={message.payload.get('seq')}")
 
     def _handle_history_response(self, message: ProtocolMessage) -> None:
-        items = self.history.add_history_response(message, current_user=self.state.username)
+        items = self.history.cache_history_response(message, current_user=self.state.username)
+        if not items:
+            print("history: no messages")
+            return
         for line in self.history.format_items(items, current_user=self.state.username):
             print(line)
 
@@ -273,10 +309,28 @@ class ChatClient:
         group_id = str(message.group_id or message.payload.get("group_id") or "")
         if not group_id:
             return
-        if message.type in {MessageType.CREATE_GROUP, MessageType.JOIN_GROUP}:
+
+        actor = message.payload.get("username")
+        is_about_current_user = (
+            message.receiver == self.state.username
+            or actor == self.state.username
+            or message.type == MessageType.CREATE_GROUP
+        )
+
+        if is_about_current_user and message.type in {MessageType.CREATE_GROUP, MessageType.JOIN_GROUP}:
             self.state.groups.add(group_id)
-        elif message.type == MessageType.LEAVE_GROUP:
+        elif is_about_current_user and message.type == MessageType.LEAVE_GROUP:
             self.state.groups.discard(group_id)
+
+        if message.type == MessageType.CREATE_GROUP:
+            name = message.payload.get("name", "")
+            print(f"group created: {group_id} {name}".rstrip())
+        elif message.type == MessageType.JOIN_GROUP:
+            user = actor or message.receiver or "-"
+            print(f"group joined: {group_id} by {user}")
+        elif message.type == MessageType.LEAVE_GROUP:
+            user = actor or message.receiver or "-"
+            print(f"group left: {group_id} by {user}")
 
 
 def parse_args() -> argparse.Namespace:

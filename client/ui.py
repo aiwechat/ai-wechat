@@ -23,6 +23,8 @@ HELP_TEXT = """commands:
   /leave <group_id>
   /history private <username> [limit]
   /history group <group_id> [limit]
+  /groups
+  /online
   /status
   /heartbeat
   /quit
@@ -97,6 +99,10 @@ def handle_line(client: "ChatClient", line: str) -> bool:
         client.leave_group(group_id)
     elif command == "history":
         handle_history(client, rest)
+    elif command == "groups":
+        handle_groups(client)
+    elif command == "online":
+        handle_online(client)
     elif command == "status":
         handle_status(client)
     elif command == "heartbeat":
@@ -154,11 +160,30 @@ def handle_status(client: "ChatClient") -> None:
     print(f"username: {client.state.username or '-'}")
     print(f"login_confirmed: {client.state.login_confirmed}")
     print(f"current_chat: {client.state.current_chat_type or '-'} {client.state.current_target or ''}".rstrip())
+    handle_groups(client)
+    handle_online(client)
+
+
+def handle_groups(client: "ChatClient") -> None:
     print(f"groups: {', '.join(sorted(client.state.groups)) or '-'}")
-    if client.state.user_status:
-        print("known user status:")
-        for username, status in sorted(client.state.user_status.items()):
-            print(f"  {username}: {status}")
+
+
+def handle_online(client: "ChatClient") -> None:
+    online = sorted(
+        username
+        for username, status in client.state.user_status.items()
+        if status == "online"
+    )
+    print(f"online_users: {', '.join(online) or '-'}")
+    offline = sorted(
+        username
+        for username, status in client.state.user_status.items()
+        if status != "online"
+    )
+    if offline:
+        print("known offline/other:")
+        for username in offline:
+            print(f"  {username}: {client.state.user_status[username]}")
 
 
 def send_to_current_chat(client: "ChatClient", content: str) -> None:
