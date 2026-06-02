@@ -33,7 +33,35 @@
 - 支持至少 50 个客户端并发连接。
 - 命令行客户端支持连接服务端、注册登录、私聊、群聊、群组管理、历史拉取、在线状态查看和手动心跳。
 - 浏览器 GUI 支持电脑和手机访问，可登录注册、私聊群聊、建群加群、拉取历史和触发 `@AI`。
+- 浏览器 GUI 支持图片和语音消息；群聊中可用 `@AI + 图片` 触发多模态图片分析。
 - 客户端本地历史仅用于当前会话显示，重启后以服务端 `history_request` / `history_response` 为准。
+
+## AI API 配置
+
+项目根目录支持 `.env` 配置，服务端启动时会自动读取。`.env` 已在 `.gitignore` 中，不应提交真实 API Key。
+
+MiMo 配置示例：
+
+```text
+MIMO_API_KEY=your-api-key
+MIMO_BASE_URL=https://api.xiaomimimo.com/v1
+MIMO_MODEL=mimo-v2.5
+AI_ASSISTANT_NAME=AI助手
+AI_TIMEOUT_SECONDS=20
+AI_MAX_COMPLETION_TOKENS=1024
+AI_TEMPERATURE=1.0
+AI_TOP_P=0.95
+```
+
+也可以使用 OpenAI-compatible 配置：
+
+```text
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
+如果没有配置 API Key，`@AI` 会返回本地降级回复，方便离线开发和测试。
 
 ## 启动服务端
 
@@ -109,6 +137,14 @@ http://127.0.0.1:8080
 ```text
 http://192.168.1.10:8080
 ```
+
+GUI 中常用能力：
+
+- 私聊：输入用户名后点击“开始”。
+- 群聊：输入群名称创建群，或输入群 ID 加入群。
+- 图片：点击输入框旁的 `□`，图片会先进入待发送区，点击“发送”后发出。
+- 语音：点击 `♪` 选择音频文件，或点击 `●` 录音，再点击“发送”。
+- 多模态 AI：在群聊输入 `@AI 分析一下这张图`，再选择图片并发送。
 
 ## 运行测试
 

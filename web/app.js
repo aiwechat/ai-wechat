@@ -12,7 +12,11 @@ const state = {
   pendingLogin: new Map(),
   heartbeatTimer: null,
   reconnectTimer: null,
+  mediaRecorder: null,
+  recordedChunks: [],
+  pendingAttachment: null,
 };
+const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,8 +45,14 @@ const els = {
   historyBtn: $("historyBtn"),
   messageList: $("messageList"),
   messageInput: $("messageInput"),
+  pendingAttachment: $("pendingAttachment"),
   sendBtn: $("sendBtn"),
   aiHintBtn: $("aiHintBtn"),
+  imageBtn: $("imageBtn"),
+  audioFileBtn: $("audioFileBtn"),
+  recordBtn: $("recordBtn"),
+  imageInput: $("imageInput"),
+  audioInput: $("audioInput"),
   backBtn: $("backBtn"),
   toast: $("toast"),
 };
@@ -280,6 +290,7 @@ function addChatMessage(key, msg) {
   conv.messages.push({
     sender: msg.sender,
     content: msg.payload.content || "",
+    attachment: msg.payload.attachment || null,
     timestamp: msg.payload.created_at || msg.timestamp,
     system: false,
     ai: Boolean(msg.payload.ai || msg.meta?.ai_response),
@@ -296,6 +307,7 @@ function addHistoryRow(key, row) {
     id,
     sender: row.sender,
     content: row.content || row.payload?.content || "",
+    attachment: row.payload?.attachment || null,
     timestamp: row.created_at,
     system: false,
     ai: row.message_type === "ai_response",
@@ -395,7 +407,7 @@ function renderMessages() {
     const name = item.ai ? "AI助手" : mine ? "我" : item.sender || "未知";
     bubble.innerHTML = item.system
       ? escapeHtml(item.content)
-      : `<div class="bubble-meta">${escapeHtml(name)} · ${formatTime(item.timestamp)}</div>${escapeHtml(item.content)}`;
+      : `<div class="bubble-meta">${escapeHtml(name)} · ${formatTime(item.timestamp)}</div>${renderMessageBody(item)}`;
     row.appendChild(bubble);
     els.messageList.appendChild(row);
   }
@@ -407,7 +419,7 @@ function titleFor(conv) {
 }
 
 function subtitleFor(conv) {
-  if (conv.type === "group") return `群聊 ID ${shortId(conv.target)} · 输入 @AI 可以触发智能助手`;
+  if (conv.type === "group") return `群聊 ID ${shortId(conv.target)} · @AI 可配合图片提问`;
   return state.online.get(conv.target) === "online" ? "在线" : "私聊";
 }
 
@@ -455,13 +467,33 @@ function loginWith(username, password) {
 function sendCurrentMessage() {
   const content = els.messageInput.value.trim();
   const conv = state.current;
-  if (!content || !conv) return;
-  if (conv.type === "group") {
-    send(message("group_msg", { content }, { group_id: conv.target }));
-  } else {
-    send(message("private_msg", { content }, { receiver: conv.target }));
+  if (!conv) {
+    showToast("请先选择会话");
+    return;
   }
+  if (!content && !state.pendingAttachment) {
+    return;
+  }
+  const payload = { content };
+  if (state.pendingAttachment) {
+    payload.attachment = state.pendingAttachment;
+  }
+  sendChatPayload(payload);
   els.messageInput.value = "";
+  clearPendingAttachment();
+}
+
+function sendChatPayload(payload) {
+  const conv = state.current;
+  if (!conv) {
+    showToast("请先选择会话");
+    return;
+  }
+  if (conv.type === "group") {
+    send(message("group_msg", payload, { group_id: conv.target }));
+  } else {
+    send(message("private_msg", payload, { receiver: conv.target }));
+  }
 }
 
 function requestHistory() {
@@ -479,6 +511,139 @@ function showToast(text) {
   els.toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => els.toast.classList.add("hidden"), 2600);
+}
+
+function renderMessageBody(item) {
+  const parts = [];
+  if (item.content) {
+    parts.push(`<div class="message-text">${escapeHtml(item.content)}</div>`);
+  }
+  if (item.attachment) {
+    parts.push(renderAttachment(item.attachment));
+  }
+  return parts.join("");
+}
+
+function renderAttachment(attachment) {
+  const name = escapeHtml(attachment.name || (attachment.kind === "image" ? "图片" : "语音"));
+  const data = escapeHtml(attachment.data || "");
+  if (attachment.kind === "image") {
+    return `<figure class="attachment image-attachment"><img src="${data}" alt="${name}" loading="lazy"><figcaption>${name}</figcaption></figure>`;
+  }
+  if (attachment.kind === "audio") {
+    return `<figure class="attachment audio-attachment"><audio controls src="${data}"></audio><figcaption>${name}</figcaption></figure>`;
+  }
+  return `<div class="attachment-file">${name}</div>`;
+}
+
+async function stageFileAttachment(file, kind) {
+  if (!file) return;
+  if (!state.current) {
+    showToast("请先选择会话");
+    return;
+  }
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    showToast("附件不能超过 4MB");
+    return;
+  }
+  if (!file.type.startsWith(`${kind}/`)) {
+    showToast(kind === "image" ? "请选择图片文件" : "请选择音频文件");
+    return;
+  }
+  const data = await readFileAsDataUrl(file);
+  state.pendingAttachment = {
+    kind,
+    mime: file.type,
+    name: file.name || (kind === "image" ? "image" : "audio"),
+    size: file.size,
+    data,
+  };
+  renderPendingAttachment();
+  showToast(kind === "image" ? "图片已放入发送框" : "音频已放入发送框");
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function toggleRecording() {
+  if (state.mediaRecorder && state.mediaRecorder.state === "recording") {
+    state.mediaRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    showToast("当前浏览器不支持录音");
+    return;
+  }
+  if (!state.current) {
+    showToast("请先选择会话");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    state.recordedChunks = [];
+    state.mediaRecorder = recorder;
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) state.recordedChunks.push(event.data);
+    });
+    recorder.addEventListener("stop", async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      els.recordBtn.classList.remove("recording");
+      const blob = new Blob(state.recordedChunks, { type: recorder.mimeType || "audio/webm" });
+      if (blob.size > MAX_ATTACHMENT_BYTES) {
+        showToast("语音不能超过 4MB");
+        return;
+      }
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type || "audio/webm" });
+      await stageFileAttachment(file, "audio");
+    });
+    recorder.start();
+    els.recordBtn.classList.add("recording");
+    showToast("正在录音，再点一次发送");
+  } catch (error) {
+    showToast(`录音失败：${error.message || error}`);
+  }
+}
+
+function renderPendingAttachment() {
+  const attachment = state.pendingAttachment;
+  if (!attachment) {
+    els.pendingAttachment.classList.add("hidden");
+    els.pendingAttachment.innerHTML = "";
+    return;
+  }
+  const title = escapeHtml(attachment.name || (attachment.kind === "image" ? "图片" : "语音"));
+  const size = formatBytes(attachment.size || 0);
+  const preview = attachment.kind === "image"
+    ? `<img src="${escapeHtml(attachment.data)}" alt="${title}">`
+    : `<audio controls src="${escapeHtml(attachment.data)}"></audio>`;
+  els.pendingAttachment.innerHTML = `
+    <div class="pending-preview">${preview}</div>
+    <div class="pending-meta">
+      <strong>${title}</strong>
+      <small>${attachment.kind === "image" ? "图片" : "语音"} · ${size}</small>
+    </div>
+    <button id="clearAttachmentBtn" class="icon-button" title="移除附件" aria-label="移除附件">×</button>
+  `;
+  els.pendingAttachment.classList.remove("hidden");
+  $("clearAttachmentBtn").addEventListener("click", clearPendingAttachment);
+}
+
+function clearPendingAttachment() {
+  state.pendingAttachment = null;
+  renderPendingAttachment();
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function createPrivateConversation() {
@@ -558,6 +723,17 @@ els.backBtn.addEventListener("click", () => document.body.classList.remove("chat
 els.aiHintBtn.addEventListener("click", () => {
   if (!els.messageInput.value.startsWith("@AI")) els.messageInput.value = `@AI ${els.messageInput.value}`;
   els.messageInput.focus();
+});
+els.imageBtn.addEventListener("click", () => els.imageInput.click());
+els.audioFileBtn.addEventListener("click", () => els.audioInput.click());
+els.recordBtn.addEventListener("click", toggleRecording);
+els.imageInput.addEventListener("change", () => {
+  stageFileAttachment(els.imageInput.files?.[0], "image");
+  els.imageInput.value = "";
+});
+els.audioInput.addEventListener("change", () => {
+  stageFileAttachment(els.audioInput.files?.[0], "audio");
+  els.audioInput.value = "";
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {

@@ -13,7 +13,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Protocol
+from typing import Any, Protocol
 from urllib import error, request
 
 
@@ -29,7 +29,14 @@ DEFAULT_MAX_COMPLETION_TOKENS = 1024
 class AIResponder(Protocol):
     assistant_name: str
 
-    def answer(self, prompt: str, *, username: str | None = None, group_id: str | None = None) -> str:
+    def answer(
+        self,
+        prompt: str,
+        *,
+        username: str | None = None,
+        group_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str:
         ...
 
 
@@ -77,11 +84,25 @@ class AIService:
         self.config = config or AIConfig.from_env()
         self.assistant_name = self.config.assistant_name
 
-    def answer(self, prompt: str, *, username: str | None = None, group_id: str | None = None) -> str:
+    def answer(
+        self,
+        prompt: str,
+        *,
+        username: str | None = None,
+        group_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str:
         question = prompt.strip()
-        if not question:
-            return "请在 @AI 后面写下你想问的问题。"
+        image_attachments = [
+            item
+            for item in attachments or []
+            if item.get("kind") == "image" and isinstance(item.get("data"), str)
+        ]
+        if not question and not image_attachments:
+            return "请在 @AI 后面写下你想问的问题，或附上一张图片。"
         if not self.config.api_key:
+            if image_attachments:
+                return f"我已收到你的图片和问题：{question or '请分析这张图片'}"
             return f"我已收到你的问题：{question}"
 
         payload = {
@@ -91,7 +112,7 @@ class AIService:
                     "role": "system",
                     "content": "你是群聊中的 AI 助手，回答要准确、简洁、友好。",
                 },
-                {"role": "user", "content": question},
+                {"role": "user", "content": build_user_content(question, image_attachments)},
             ],
             "max_completion_tokens": self.config.max_completion_tokens,
             "temperature": self.config.temperature,
@@ -114,6 +135,9 @@ class AIService:
         try:
             with request.urlopen(req, timeout=self.config.timeout_seconds) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise AIServiceError(f"AI API call failed: HTTP {exc.code}: {detail}") from exc
         except (OSError, TimeoutError, error.URLError, json.JSONDecodeError) as exc:
             raise AIServiceError(f"AI API call failed: {exc}") from exc
 
@@ -166,6 +190,23 @@ def normalize_chat_completions_url(base_url: str) -> str:
     return f"{trimmed}/chat/completions"
 
 
+def build_user_content(prompt: str, image_attachments: list[dict[str, Any]]) -> str | list[dict[str, Any]]:
+    """Build OpenAI-compatible text or multimodal user content."""
+
+    question = prompt.strip() or "请分析这张图片。"
+    if not image_attachments:
+        return question
+    content: list[dict[str, Any]] = [{"type": "text", "text": question}]
+    for attachment in image_attachments:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": attachment["data"]},
+            }
+        )
+    return content
+
+
 def load_dotenv(path: str | Path = ".env") -> None:
     """Load simple KEY=VALUE lines into os.environ when they are not set."""
 
@@ -177,7 +218,7 @@ def load_dotenv(path: str | Path = ".env") -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        key = key.strip()
+        key = key.strip().lstrip("\ufeff")
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value

@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from common.protocol import MessageType, make_message
-from server.web_server import WebChatServer, encode_client_ws_text, read_ws_frame
+from server.web_server import WebChatServer, encode_client_ws_text, read_ws_frame, read_ws_message
 
 
 class WebServerTest(unittest.TestCase):
@@ -61,6 +61,32 @@ class WebServerTest(unittest.TestCase):
             incoming = json.loads(payload.decode("utf-8"))
             self.assertEqual(incoming["type"], MessageType.REGISTER.value)
             self.assertEqual(incoming["payload"]["username"], "web-alice")
+
+
+class WebSocketFrameTest(unittest.TestCase):
+    def test_read_ws_message_reassembles_fragmented_text(self) -> None:
+        first = _masked_frame(b'{"type":"', opcode=0x1, fin=False, mask=b"\x01\x02\x03\x04")
+        second = _masked_frame(b'heartbeat"}', opcode=0x0, fin=True, mask=b"\x05\x06\x07\x08")
+        left, right = socket.socketpair()
+        try:
+            left.sendall(first + second)
+            opcode, payload = read_ws_message(right)
+            self.assertEqual(opcode, 0x1)
+            self.assertEqual(payload, b'{"type":"heartbeat"}')
+        finally:
+            left.close()
+            right.close()
+
+
+def _masked_frame(payload: bytes, *, opcode: int, fin: bool, mask: bytes) -> bytes:
+    first = (0x80 if fin else 0) | opcode
+    length = len(payload)
+    masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    if length < 126:
+        return bytes([first, 0x80 | length]) + mask + masked
+    if length <= 0xFFFF:
+        return bytes([first, 0x80 | 126]) + length.to_bytes(2, "big") + mask + masked
+    return bytes([first, 0x80 | 127]) + length.to_bytes(8, "big") + mask + masked
 
 
 if __name__ == "__main__":

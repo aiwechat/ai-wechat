@@ -79,9 +79,19 @@
       <div id="messageList" class="message-list"></div>
 
       <footer class="composer">
-        <button id="aiHintBtn" class="icon-button" title="插入 @AI" aria-label="插入 @AI">@</button>
-        <textarea id="messageInput" rows="1" placeholder="输入消息"></textarea>
+        <div class="composer-tools">
+          <button id="aiHintBtn" class="icon-button" title="插入 @AI" aria-label="插入 @AI">@</button>
+          <button id="imageBtn" class="icon-button" title="选择图片" aria-label="选择图片">□</button>
+          <button id="audioFileBtn" class="icon-button" title="选择音频" aria-label="选择音频">♪</button>
+          <button id="recordBtn" class="icon-button" title="录制语音" aria-label="录制语音">●</button>
+        </div>
+        <div class="composer-main">
+          <div id="pendingAttachment" class="pending-attachment hidden"></div>
+          <textarea id="messageInput" rows="1" placeholder="输入消息"></textarea>
+        </div>
         <button id="sendBtn" class="send-button">发送</button>
+        <input id="imageInput" class="hidden-file" type="file" accept="image/*">
+        <input id="audioInput" class="hidden-file" type="file" accept="audio/*">
       </footer>
     </section>
   </main>

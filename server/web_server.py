@@ -214,7 +214,7 @@ class WebChatServer:
                 chat_server.users.register_session(session)
                 try:
                     while not session.closed:
-                        frame = read_ws_frame(self.connection)
+                        frame = read_ws_message(self.connection)
                         if frame is None:
                             break
                         opcode, payload = frame
@@ -245,14 +245,54 @@ class _ThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def read_ws_frame(sock: socket.socket) -> tuple[int, bytes] | None:
+    frame = _read_ws_frame_parts(sock)
+    if frame is None:
+        return None
+    fin, opcode, payload = frame
+    if not fin:
+        raise ConnectionError("fragmented websocket frames are not supported by read_ws_frame")
+    return opcode, payload
+
+
+def read_ws_message(sock: socket.socket) -> tuple[int, bytes] | None:
+    """Read one complete WebSocket message, including fragmented messages."""
+
+    first = _read_ws_frame_parts(sock)
+    if first is None:
+        return None
+    fin, opcode, payload = first
+    if opcode in {0x8, 0x9, 0xA}:
+        return opcode, payload
+    if fin:
+        return opcode, payload
+
+    parts = [payload]
+    message_opcode = opcode
+    while True:
+        frame = _read_ws_frame_parts(sock)
+        if frame is None:
+            raise ConnectionError("socket closed during fragmented websocket message")
+        fin, opcode, payload = frame
+        if opcode in {0x8, 0x9, 0xA}:
+            if opcode == 0x8:
+                return opcode, payload
+            continue
+        if opcode != 0x0:
+            raise ConnectionError("expected websocket continuation frame")
+        parts.append(payload)
+        if sum(len(part) for part in parts) > MAX_WS_FRAME_SIZE:
+            raise ConnectionError("websocket message too large")
+        if fin:
+            return message_opcode, b"".join(parts)
+
+
+def _read_ws_frame_parts(sock: socket.socket) -> tuple[bool, int, bytes] | None:
     header = _recv_exact(sock, 2)
     if not header:
         return None
     first, second = header
-    fin = first & 0x80
+    fin = bool(first & 0x80)
     opcode = first & 0x0F
-    if not fin:
-        raise ConnectionError("fragmented websocket frames are not supported")
     masked = bool(second & 0x80)
     length = second & 0x7F
     if length == 126:
@@ -265,7 +305,7 @@ def read_ws_frame(sock: socket.socket) -> tuple[int, bytes] | None:
     payload = _recv_exact(sock, length) if length else b""
     if masked:
         payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
-    return opcode, payload
+    return fin, opcode, payload
 
 
 def encode_ws_text(text: str) -> bytes:

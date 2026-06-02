@@ -31,6 +31,8 @@ from server.user_manager import ClientSession, UserManager
 
 
 logger = logging.getLogger(__name__)
+MAX_ATTACHMENT_DATA_CHARS = 7_500_000
+ALLOWED_ATTACHMENT_KINDS = {"image", "audio"}
 
 
 def _require(payload: dict[str, Any], field: str, request_id: str | None = None) -> Any:
@@ -54,6 +56,96 @@ def _require_str(payload: dict[str, Any], field: str, request_id: str | None = N
             request_id=request_id,
         )
     return value
+
+
+def _optional_str(payload: dict[str, Any], field: str) -> str:
+    value = payload.get(field, "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            f"field {field} must be a string",
+            detail={"field": field},
+        )
+    return value
+
+
+def _message_body(payload: dict[str, Any], request_id: str) -> tuple[str, dict[str, Any] | None]:
+    content = _optional_str(payload, "content").strip()
+    attachment = payload.get("attachment")
+    if attachment is not None:
+        attachment = _validate_attachment(attachment, request_id)
+    if not content and attachment is None:
+        raise ProtocolError(
+            ErrorCode.MISSING_FIELD,
+            "message must include content or attachment",
+            detail={"required": ["content", "attachment"]},
+            request_id=request_id,
+        )
+    return content, attachment
+
+
+def _validate_attachment(raw: Any, request_id: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment must be an object",
+            detail={"field": "attachment"},
+            request_id=request_id,
+        )
+    kind = raw.get("kind")
+    mime = raw.get("mime")
+    name = raw.get("name", "")
+    data = raw.get("data")
+    size = raw.get("size", 0)
+    if kind not in ALLOWED_ATTACHMENT_KINDS:
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment kind must be image or audio",
+            detail={"kind": kind},
+            request_id=request_id,
+        )
+    if not isinstance(mime, str) or not mime.startswith(f"{kind}/"):
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment mime does not match kind",
+            detail={"kind": kind, "mime": mime},
+            request_id=request_id,
+        )
+    if not isinstance(data, str) or not data:
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment data must be a base64 data URL",
+            detail={"field": "attachment.data"},
+            request_id=request_id,
+        )
+    if len(data) > MAX_ATTACHMENT_DATA_CHARS:
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment is too large",
+            detail={"max_data_chars": MAX_ATTACHMENT_DATA_CHARS},
+            request_id=request_id,
+        )
+    if not isinstance(name, str):
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment name must be a string",
+            request_id=request_id,
+        )
+    if not isinstance(size, int) or size < 0:
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            "attachment size must be a non-negative integer",
+            request_id=request_id,
+        )
+    return {
+        "kind": kind,
+        "mime": mime,
+        "name": name,
+        "size": size,
+        "data": data,
+    }
 
 
 class MessageRouter:
@@ -204,8 +296,8 @@ class MessageRouter:
     def _handle_private_msg(self, session: ClientSession, message: ProtocolMessage) -> None:
         self._require_auth(session, message)
         receiver = message.receiver or _require_str(message.payload, "receiver", message.request_id)
-        content = _require_str(message.payload, "content", message.request_id)
-        if not self._moderate_or_warn(session, content, message):
+        content, attachment = _message_body(message.payload, message.request_id)
+        if content and not self._moderate_or_warn(session, content, message):
             return
 
         if receiver == session.username:
@@ -227,18 +319,21 @@ class MessageRouter:
             sender=session.username,
             receiver=receiver,
             content=content,
-            payload={"content": content},
+            payload=_chat_payload(content, attachment),
         )
 
+        payload = _chat_payload(content, attachment)
+        payload.update(
+            {
+                "message_id": record["message_id"],
+                "created_at": record["created_at"],
+            }
+        )
         forward = make_message(
             MessageType.PRIVATE_MSG,
             sender=session.username,
             receiver=receiver,
-            payload={
-                "content": content,
-                "message_id": record["message_id"],
-                "created_at": record["created_at"],
-            },
+            payload=payload,
             request_id=message.request_id,
         )
 
@@ -253,12 +348,7 @@ class MessageRouter:
                 MessageType.PRIVATE_MSG,
                 sender=session.username,
                 receiver=receiver,
-                payload={
-                    "content": content,
-                    "message_id": record["message_id"],
-                    "created_at": record["created_at"],
-                    "delivered": delivered,
-                },
+                payload={**payload, "delivered": delivered},
                 request_id=message.request_id,
                 meta={"echo": True},
             )
@@ -267,8 +357,8 @@ class MessageRouter:
     def _handle_group_msg(self, session: ClientSession, message: ProtocolMessage) -> None:
         self._require_auth(session, message)
         group_id = message.group_id or _require_str(message.payload, "group_id", message.request_id)
-        content = _require_str(message.payload, "content", message.request_id)
-        if not self._moderate_or_warn(session, content, message, group_id=group_id):
+        content, attachment = _message_body(message.payload, message.request_id)
+        if content and not self._moderate_or_warn(session, content, message, group_id=group_id):
             return
 
         members = self.groups.member_usernames(group_id)
@@ -292,18 +382,21 @@ class MessageRouter:
             sender=session.username,
             group_id=group_id,
             content=content,
-            payload={"content": content},
+            payload=_chat_payload(content, attachment),
         )
 
+        payload = _chat_payload(content, attachment)
+        payload.update(
+            {
+                "message_id": record["message_id"],
+                "created_at": record["created_at"],
+            }
+        )
         forward = make_message(
             MessageType.GROUP_MSG,
             sender=session.username,
             group_id=group_id,
-            payload={
-                "content": content,
-                "message_id": record["message_id"],
-                "created_at": record["created_at"],
-            },
+            payload=payload,
             request_id=message.request_id,
         )
 
@@ -313,12 +406,13 @@ class MessageRouter:
                 continue
             target.send(forward)
 
-        ai_prompt = extract_ai_prompt(content)
+        ai_prompt = extract_ai_prompt(content) if content else None
         if ai_prompt is not None:
             self._schedule_ai_reply(
                 requester=session.username or "",
                 group_id=group_id,
                 prompt=ai_prompt,
+                attachments=[attachment] if attachment and attachment.get("kind") == "image" else None,
                 request_id=message.request_id,
             )
 
@@ -502,7 +596,15 @@ class MessageRouter:
         )
         return False
 
-    def _schedule_ai_reply(self, *, requester: str, group_id: str, prompt: str, request_id: str) -> None:
+    def _schedule_ai_reply(
+        self,
+        *,
+        requester: str,
+        group_id: str,
+        prompt: str,
+        request_id: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> None:
         key = f"{group_id}:{requester}"
         if not self.ai_rate_limiter.allow(key):
             session = self.users.get_session(requester)
@@ -523,14 +625,27 @@ class MessageRouter:
                 )
             return
 
-        future = self._ai_executor.submit(self._build_ai_reply, requester, group_id, prompt)
+        future = self._ai_executor.submit(self._build_ai_reply, requester, group_id, prompt, attachments)
         future.add_done_callback(lambda done: self._send_ai_reply(done, group_id, request_id))
 
-    def _build_ai_reply(self, requester: str, group_id: str, prompt: str) -> str:
+    def _build_ai_reply(
+        self,
+        requester: str,
+        group_id: str,
+        prompt: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str:
         try:
-            return self.ai_service.answer(prompt, username=requester, group_id=group_id)
+            return self.ai_service.answer(
+                prompt,
+                username=requester,
+                group_id=group_id,
+                attachments=attachments,
+            )
         except AIServiceError as exc:
             logger.warning("AI reply failed for group %s: %s", group_id, exc)
+            if attachments and "support image input" in str(exc):
+                return "当前 AI 接口不支持图片输入。可以先发送文字问题，或更换支持视觉输入的模型/API。"
             return "AI 服务暂时不可用，请稍后再试。"
         except Exception:
             logger.exception("unexpected AI reply error for group %s", group_id)
@@ -576,3 +691,10 @@ class MessageRouter:
             self.db.create_user(assistant_name, secrets.token_urlsafe(32), display_name=assistant_name)
         except ValueError:
             pass
+
+
+def _chat_payload(content: str, attachment: dict[str, Any] | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"content": content}
+    if attachment is not None:
+        payload["attachment"] = attachment
+    return payload

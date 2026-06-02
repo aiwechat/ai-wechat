@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import Any
 
 from common.protocol import ErrorCode, MessageType, make_message
 from server.server import ChatServer
@@ -19,7 +20,25 @@ from tests._server_helpers import TestClient, assert_no_error, free_port
 class FakeAIService:
     assistant_name = "AI助手"
 
-    def answer(self, prompt: str, *, username: str | None = None, group_id: str | None = None) -> str:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def answer(
+        self,
+        prompt: str,
+        *,
+        username: str | None = None,
+        group_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "username": username,
+                "group_id": group_id,
+                "attachments": attachments or [],
+            }
+        )
         return f"AI reply to {username} in {group_id}: {prompt}"
 
 
@@ -27,6 +46,7 @@ class ServerTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "chat.db"
+        self.ai_service = FakeAIService()
         self.server = ChatServer(
             host="127.0.0.1",
             port=free_port(),
@@ -265,11 +285,48 @@ class GroupChatTest(ServerTestCase):
             self.assertIn("违规词1", warning.payload["matched_words"])
             self.assertEqual(self.server.db.get_group_history("mod-g1"), [])
 
+    def test_group_image_attachment_is_forwarded_and_persisted(self) -> None:
+        self._setup_users("alice", "bob")
+        attachment = {
+            "kind": "image",
+            "mime": "image/png",
+            "name": "tiny.png",
+            "size": 68,
+            "data": "data:image/png;base64,iVBORw0KGgo=",
+        }
+        with self.connect() as alice, self.connect() as bob:
+            alice.login("alice", "alice-pw")
+            bob.login("bob", "bob-pw")
+            alice.send(
+                make_message(
+                    MessageType.CREATE_GROUP,
+                    payload={"name": "media-room", "group_id": "media-g1"},
+                )
+            )
+            alice.recv_of_type(MessageType.CREATE_GROUP)
+            bob.send(make_message(MessageType.JOIN_GROUP, payload={"group_id": "media-g1"}))
+            bob.recv_of_type(MessageType.JOIN_GROUP)
+
+            alice.send(
+                make_message(
+                    MessageType.GROUP_MSG,
+                    group_id="media-g1",
+                    payload={"attachment": attachment},
+                )
+            )
+
+            forward = bob.recv_of_type(MessageType.GROUP_MSG)
+            self.assertEqual(forward.payload["content"], "")
+            self.assertEqual(forward.payload["attachment"]["kind"], "image")
+            history = self.server.db.get_group_history("media-g1")
+            self.assertEqual(history[-1]["payload"]["attachment"]["name"], "tiny.png")
+
 
 class AIFeatureTest(ServerTestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "chat.db"
+        self.ai_service = FakeAIService()
         self.server = ChatServer(
             host="127.0.0.1",
             port=free_port(),
@@ -277,7 +334,7 @@ class AIFeatureTest(ServerTestCase):
             heartbeat_timeout=2.0,
             heartbeat_interval=0.5,
             recv_timeout=1.0,
-            ai_service=FakeAIService(),
+            ai_service=self.ai_service,
             ai_cooldown_seconds=0.0,
         )
         self.port = self.server.start()
@@ -313,6 +370,40 @@ class AIFeatureTest(ServerTestCase):
             self.assertEqual(ai_reply.sender, "AI助手")
             self.assertTrue(ai_reply.payload["ai"])
             self.assertIn("TCP 和 UDP", ai_reply.payload["content"])
+
+    def test_group_ai_mention_passes_image_attachment_to_ai_service(self) -> None:
+        self._setup_users("alice", "bob")
+        attachment = {
+            "kind": "image",
+            "mime": "image/png",
+            "name": "diagram.png",
+            "size": 68,
+            "data": "data:image/png;base64,iVBORw0KGgo=",
+        }
+        with self.connect() as alice, self.connect() as bob:
+            alice.login("alice", "alice-pw")
+            bob.login("bob", "bob-pw")
+            alice.send(
+                make_message(
+                    MessageType.CREATE_GROUP,
+                    payload={"name": "ai-room", "group_id": "ai-image-g1"},
+                )
+            )
+            alice.recv_of_type(MessageType.CREATE_GROUP)
+            bob.send(make_message(MessageType.JOIN_GROUP, payload={"group_id": "ai-image-g1"}))
+            bob.recv_of_type(MessageType.JOIN_GROUP)
+
+            alice.send(
+                make_message(
+                    MessageType.GROUP_MSG,
+                    group_id="ai-image-g1",
+                    payload={"content": "@AI 看看这张图", "attachment": attachment},
+                )
+            )
+
+            bob.recv_of_type(MessageType.GROUP_MSG)
+            bob.recv_of_type(MessageType.GROUP_MSG)
+            self.assertEqual(self.ai_service.calls[-1]["attachments"][0]["name"], "diagram.png")
 
 
 class HeartbeatTest(ServerTestCase):
