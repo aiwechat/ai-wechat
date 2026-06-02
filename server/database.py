@@ -229,6 +229,18 @@ class ChatDatabase:
             "created_at": now,
         }
 
+    def get_group(self, group_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT group_id, name, owner_username, created_at
+                FROM groups
+                WHERE group_id = ?
+                """,
+                (group_id,),
+            ).fetchone()
+        return _row_to_dict(row)
+
     def join_group(self, group_id: str, username: str) -> dict[str, Any]:
         now = utc_now()
         try:
@@ -261,6 +273,21 @@ class ChatDatabase:
                 ORDER BY joined_at ASC
                 """,
                 (group_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_user_groups(self, username: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT g.group_id, g.name, g.owner_username, g.created_at,
+                       gm.role, gm.joined_at
+                FROM groups g
+                JOIN group_members gm ON gm.group_id = g.group_id
+                WHERE gm.username = ?
+                ORDER BY gm.joined_at ASC
+                """,
+                (username,),
             ).fetchall()
         return [dict(row) for row in rows]
 

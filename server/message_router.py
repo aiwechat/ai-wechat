@@ -159,6 +159,7 @@ class MessageRouter:
                     "username": user["username"],
                     "display_name": user["display_name"],
                     "online_users": sorted(roster),
+                    "groups": self.db.list_user_groups(user["username"]),
                 },
                 request_id=message.request_id,
             )

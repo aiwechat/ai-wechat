@@ -42,7 +42,7 @@ class GroupManager:
         if not group_id:
             raise ProtocolError(ErrorCode.INVALID_FIELD, "group_id is required")
         try:
-            return self.db.join_group(group_id, username)
+            result = self.db.join_group(group_id, username)
         except ValueError as exc:
             # Could be already a member or could be a missing group / user.
             if self._group_exists(group_id):
@@ -56,6 +56,11 @@ class GroupManager:
                 f"group not found: {group_id}",
                 detail={"group_id": group_id},
             ) from exc
+        group = self.db.get_group(group_id)
+        if group is not None:
+            result["name"] = group["name"]
+            result["owner_username"] = group["owner_username"]
+        return result
 
     def leave_group(self, group_id: str, username: str) -> None:
         if not group_id:

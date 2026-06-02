@@ -11,6 +11,7 @@
 - `server/message_router.py`：根据 `MessageType` 分发消息，注册、登录、私聊、群聊、群组操作、历史记录拉取。
 - `server/heartbeat.py`：后台心跳扫描线程，定期检测超时连接并踢出。
 - `server/server.py`：TCP 服务器入口，accept 循环、每连接一线程处理帧收发，可命令行启动。
+- `server/web_server.py`：浏览器 GUI 入口，提供静态页面和 WebSocket 网关，复用服务端消息路由。
 - `client/client.py`：CLI 客户端核心，管理 TCP 连接、发送协议消息、处理服务端响应和本地状态。
 - `client/receiver.py`：客户端接收线程，持续读取 socket，复用 `decode_frames()` 处理粘包/拆包并分发消息。
 - `client/ui.py`：命令行交互层，解析注册、登录、私聊、群聊、群组、历史、状态、心跳等命令。
@@ -31,6 +32,7 @@
 - 服务端主动心跳检测，超时连接自动清理。
 - 支持至少 50 个客户端并发连接。
 - 命令行客户端支持连接服务端、注册登录、私聊、群聊、群组管理、历史拉取、在线状态查看和手动心跳。
+- 浏览器 GUI 支持电脑和手机访问，可登录注册、私聊群聊、建群加群、拉取历史和触发 `@AI`。
 - 客户端本地历史仅用于当前会话显示，重启后以服务端 `history_request` / `history_response` 为准。
 
 ## 启动服务端
@@ -89,6 +91,24 @@ python3 -m client.client --host 127.0.0.1 --port 9000
 | `/status` | 查看连接、登录、当前聊天对象、群组和在线状态 |
 | `/heartbeat` | 手动发送心跳并等待服务端回显 |
 | `/quit` | 退出客户端 |
+
+## 启动浏览器 GUI
+
+```bash
+python3 -m server.web_server --host 0.0.0.0 --port 8080
+```
+
+在电脑上访问：
+
+```text
+http://127.0.0.1:8080
+```
+
+手机和电脑在同一个局域网时，服务端使用 `--host 0.0.0.0` 启动，然后手机访问电脑的局域网 IP，例如：
+
+```text
+http://192.168.1.10:8080
+```
 
 ## 运行测试
 

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI WeChat</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient-layer" aria-hidden="true"></div>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <section class="brand-row">
+        <div>
+          <h1>AI WeChat</h1>
+          <p><span class="status-dot"></span><span id="connectionStatus">未连接</span></p>
+        </div>
+        <button id="reconnectBtn" class="icon-button" title="重新连接" aria-label="重新连接">↻</button>
+      </section>
+
+      <section id="authPanel" class="panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-mode="login">登录</button>
+          <button class="tab" data-mode="register">注册</button>
+        </div>
+        <label>用户名<input id="usernameInput" autocomplete="username"></label>
+        <label>密码<input id="passwordInput" type="password" autocomplete="current-password"></label>
+        <button id="authSubmit" class="primary-button">登录</button>
+      </section>
+
+      <section id="profilePanel" class="profile hidden">
+        <div>
+          <span class="avatar" id="avatarText">-</span>
+        </div>
+        <div>
+          <strong id="currentUser">未登录</strong>
+          <p id="onlineSummary">0 人在线</p>
+        </div>
+        <button id="logoutBtn" class="icon-button" title="退出登录" aria-label="退出登录">⏻</button>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <span>会话</span>
+        </div>
+        <div class="inline-form">
+          <input id="privatePeerInput" placeholder="输入用户名开始私聊">
+          <button id="newPrivateBtn" class="small-button">开始</button>
+        </div>
+        <div id="conversationList" class="conversation-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <span>群组</span>
+        </div>
+        <div class="inline-form">
+          <input id="groupNameInput" placeholder="输入群名称">
+          <button id="createGroupBtn" class="small-button">创建</button>
+        </div>
+        <div class="inline-form">
+          <input id="joinGroupInput" placeholder="输入群 ID 加入">
+          <button id="joinGroupBtn" class="small-button">加入</button>
+        </div>
+        <div id="groupList" class="mini-list"></div>
+      </section>
+    </aside>
+
+    <section class="chat-pane">
+      <header class="chat-header">
+        <button id="backBtn" class="icon-button mobile-only" title="返回" aria-label="返回">‹</button>
+        <div>
+          <h2 id="chatTitle">选择一个会话</h2>
+          <p id="chatSubtitle">私聊、群聊与 AI 助手，在一张安静的桌面上</p>
+        </div>
+        <button id="historyBtn" class="icon-button" title="拉取历史" aria-label="拉取历史">⌕</button>
+      </header>
+
+      <div id="messageList" class="message-list"></div>
+
+      <footer class="composer">
+        <button id="aiHintBtn" class="icon-button" title="插入 @AI" aria-label="插入 @AI">@</button>
+        <textarea id="messageInput" rows="1" placeholder="输入消息"></textarea>
+        <button id="sendBtn" class="send-button">发送</button>
+      </footer>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
