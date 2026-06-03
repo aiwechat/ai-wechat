@@ -484,14 +484,6 @@ textarea:focus {
   scroll-behavior: smooth;
 }
 
-.history-empty {
-  display: grid;
-  place-items: center;
-  min-height: 100%;
-  color: var(--soft-ink);
-  font-size: 15px;
-}
-
 .message-list::-webkit-scrollbar {
   width: 10px;
 }

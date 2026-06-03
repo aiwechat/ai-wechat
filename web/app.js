@@ -6,16 +6,16 @@ const state = {
   loginConfirmed: false,
   current: null,
   conversations: new Map(),
-  groups: new Set(JSON.parse(localStorage.getItem("aiwechat.groups") || "[]")),
-  groupNames: new Map(Object.entries(JSON.parse(localStorage.getItem("aiwechat.groupNames") || "{}"))),
+  groups: new Set(),
+  groupNames: new Map(),
   online: new Map(),
   pendingLogin: new Map(),
+  pendingHistory: new Map(),
   heartbeatTimer: null,
   reconnectTimer: null,
   mediaRecorder: null,
   recordedChunks: [],
   pendingAttachment: null,
-  historyView: null,
 };
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
@@ -56,7 +56,6 @@ const els = {
   imageInput: $("imageInput"),
   audioInput: $("audioInput"),
   backBtn: $("backBtn"),
-  historyBackBtn: $("historyBackBtn"),
   toast: $("toast"),
 };
 
@@ -212,9 +211,15 @@ function handleIncoming(msg) {
 function handleLogin(msg) {
   const username = state.pendingLogin.get(msg.request_id) || msg.payload.username || msg.receiver;
   state.pendingLogin.delete(msg.request_id);
+  state.current = null;
+  state.conversations.clear();
+  state.groups.clear();
+  state.groupNames.clear();
   state.username = username;
   state.loginConfirmed = true;
   localStorage.setItem("aiwechat.username", username);
+  localStorage.removeItem("aiwechat.groups");
+  localStorage.removeItem("aiwechat.groupNames");
   state.online.set(username, "online");
   for (const item of msg.payload.online_users || []) {
     state.online.set(String(item), "online");
@@ -232,6 +237,9 @@ function handleError(msg) {
     state.pendingLogin.delete(msg.request_id);
     state.loginConfirmed = false;
   }
+  if (state.pendingHistory.has(msg.request_id)) {
+    state.pendingHistory.delete(msg.request_id);
+  }
   showToast(`${msg.payload.error_code || "error"}：${msg.payload.message || ""}`);
 }
 
@@ -239,12 +247,12 @@ function resetSessionState({ keepUsername = false } = {}) {
   state.loginConfirmed = false;
   if (!keepUsername) state.username = "";
   state.current = null;
-  state.historyView = null;
   state.conversations.clear();
   state.groups.clear();
   state.groupNames.clear();
   state.online.clear();
   state.pendingLogin.clear();
+  state.pendingHistory.clear();
   clearPendingAttachment();
   if (!keepUsername) localStorage.removeItem("aiwechat.username");
   localStorage.removeItem("aiwechat.groups");
@@ -267,11 +275,24 @@ function handleStatus(msg) {
 
 function handleHistory(msg) {
   const rows = Array.isArray(msg.payload.messages) ? msg.payload.messages : [];
-  if (state.historyView) {
-    state.historyView.loading = false;
-    state.historyView.rows = rows.map(historyRowToMessage);
+  const key = state.pendingHistory.get(msg.request_id);
+  state.pendingHistory.delete(msg.request_id);
+  const conv = key ? state.conversations.get(key) : conversationForHistory(msg) || state.current;
+  if (conv) {
+    conv.messages = rows.map(historyRowToMessage);
+    state.current = conv;
   }
   showToast(rows.length ? `已加载 ${rows.length} 条历史` : "暂无历史消息");
+}
+
+function conversationForHistory(msg) {
+  const payload = msg.payload || {};
+  if (payload.chat_type === "group" || payload.group_id || msg.group_id) {
+    const groupId = payload.group_id || msg.group_id;
+    return groupId ? ensureConversation(groupKey(groupId), "group", String(groupId)) : null;
+  }
+  const peer = payload.peer || payload.username || payload.receiver || payload.sender;
+  return peer ? ensureConversation(privateKey(String(peer)), "private", String(peer)) : null;
 }
 
 function historyRowToMessage(row) {
@@ -362,7 +383,6 @@ function render() {
   els.avatarText.textContent = state.username ? state.username.slice(0, 1).toUpperCase() : "-";
   els.onlineSummary.textContent = `${[...state.online.values()].filter((item) => item === "online").length} 人在线`;
   els.authSubmit.textContent = state.mode === "login" ? "登录" : "注册";
-  document.body.classList.toggle("history-open", Boolean(state.historyView));
 
   renderComposerTools();
   renderConversations();
@@ -373,10 +393,8 @@ function render() {
 function renderComposerTools() {
   const aiAvailable = state.current?.type === "group";
   els.aiHintBtn.classList.toggle("hidden", !aiAvailable);
-  els.composer.classList.toggle("hidden", Boolean(state.historyView));
-  els.historyBtn.classList.toggle("hidden", Boolean(state.historyView) || !state.current);
-  els.historyBackBtn.classList.toggle("hidden", !state.historyView);
-  els.backBtn.classList.toggle("hidden", Boolean(state.historyView));
+  els.composer.classList.remove("hidden");
+  els.historyBtn.classList.toggle("hidden", !state.current);
 }
 
 function renderConversations() {
@@ -432,10 +450,6 @@ function renderGroups() {
 }
 
 function renderMessages() {
-  if (state.historyView) {
-    renderHistoryView();
-    return;
-  }
   const conv = state.current;
   els.chatTitle.textContent = conv ? titleFor(conv) : "选择一个会话";
   els.chatSubtitle.textContent = conv ? subtitleFor(conv) : "私聊、群聊和 @AI 都在这里";
@@ -445,33 +459,6 @@ function renderMessages() {
     renderMessageItem(item);
   }
   els.messageList.scrollTop = els.messageList.scrollHeight;
-}
-
-function renderHistoryView() {
-  const view = state.historyView;
-  const conv = view?.conversation || state.current;
-  els.chatTitle.textContent = conv ? `${titleFor(conv)} 的聊天历史` : "聊天历史";
-  els.chatSubtitle.textContent = "历史记录";
-  els.messageList.innerHTML = "";
-  if (!view) return;
-  if (view.loading) {
-    const row = document.createElement("div");
-    row.className = "history-empty";
-    row.textContent = "正在加载历史...";
-    els.messageList.appendChild(row);
-    return;
-  }
-  if (!view.rows.length) {
-    const row = document.createElement("div");
-    row.className = "history-empty";
-    row.textContent = "暂无历史消息";
-    els.messageList.appendChild(row);
-    return;
-  }
-  for (const item of view.rows) {
-    renderMessageItem(item);
-  }
-  els.messageList.scrollTop = 0;
 }
 
 function renderMessageItem(item) {
@@ -510,7 +497,6 @@ function shortId(groupId) {
 function openConversation(conv) {
   if (!conv) return;
   state.current = conv;
-  state.historyView = null;
   document.body.classList.add("chat-open");
   render();
 }
@@ -574,19 +560,16 @@ function sendChatPayload(payload) {
 function requestHistory() {
   const conv = state.current;
   if (!conv) return;
-  state.historyView = { conversation: conv, rows: [], loading: true };
   clearPendingAttachment();
-  render();
   if (conv.type === "group") {
-    send(message("history_request", { chat_type: "group", group_id: conv.target, limit: 50 }, { group_id: conv.target }));
+    const msg = message("history_request", { chat_type: "group", group_id: conv.target, limit: 50 }, { group_id: conv.target });
+    state.pendingHistory.set(msg.request_id, conv.key);
+    send(msg);
   } else {
-    send(message("history_request", { chat_type: "private", peer: conv.target, limit: 50 }));
+    const msg = message("history_request", { chat_type: "private", peer: conv.target, limit: 50 });
+    state.pendingHistory.set(msg.request_id, conv.key);
+    send(msg);
   }
-}
-
-function closeHistoryView() {
-  state.historyView = null;
-  render();
 }
 
 function showToast(text) {
@@ -818,7 +801,25 @@ function formatTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (isToday(date)) return time;
+  return `${formatDate(date)} ${time}`;
+}
+
+function isToday(date) {
+  const today = new Date();
+  return (
+    date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate()
+  );
+}
+
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}.${month}.${day}`;
 }
 
 function escapeHtml(value) {
@@ -845,7 +846,6 @@ els.reconnectBtn.addEventListener("click", connect);
 els.sendBtn.addEventListener("click", sendCurrentMessage);
 els.historyBtn.addEventListener("click", requestHistory);
 els.backBtn.addEventListener("click", () => document.body.classList.remove("chat-open"));
-els.historyBackBtn.addEventListener("click", closeHistoryView);
 els.aiHintBtn.addEventListener("click", () => {
   if (state.current?.type !== "group") return;
   if (!els.messageInput.value.startsWith("@AI")) els.messageInput.value = `@AI ${els.messageInput.value}`;
@@ -881,9 +881,6 @@ els.joinGroupInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinGroup();
 });
 
-for (const groupId of state.groups) {
-  ensureConversation(groupKey(groupId), "group", groupId);
-}
 els.usernameInput.value = state.username;
 connect();
 render();
