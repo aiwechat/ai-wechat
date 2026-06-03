@@ -15,6 +15,7 @@ const state = {
   mediaRecorder: null,
   recordedChunks: [],
   pendingAttachment: null,
+  historyView: null,
 };
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
@@ -46,6 +47,7 @@ const els = {
   messageList: $("messageList"),
   messageInput: $("messageInput"),
   pendingAttachment: $("pendingAttachment"),
+  composer: $("composer"),
   sendBtn: $("sendBtn"),
   aiHintBtn: $("aiHintBtn"),
   imageBtn: $("imageBtn"),
@@ -54,6 +56,7 @@ const els = {
   imageInput: $("imageInput"),
   audioInput: $("audioInput"),
   backBtn: $("backBtn"),
+  historyBackBtn: $("historyBackBtn"),
   toast: $("toast"),
 };
 
@@ -98,7 +101,7 @@ function connect() {
   socket.addEventListener("close", () => {
     setConnected(false, "连接断开");
     stopHeartbeat();
-    state.loginConfirmed = false;
+    resetSessionState({ keepUsername: true });
     document.body.classList.remove("chat-open");
     render();
     scheduleReconnect();
@@ -162,9 +165,7 @@ function handleIncoming(msg) {
       handleLogin(msg);
       break;
     case "logout":
-      state.loginConfirmed = false;
-      state.username = "";
-      localStorage.removeItem("aiwechat.username");
+      resetSessionState();
       showToast("已退出登录");
       break;
     case "private_msg":
@@ -234,6 +235,23 @@ function handleError(msg) {
   showToast(`${msg.payload.error_code || "error"}：${msg.payload.message || ""}`);
 }
 
+function resetSessionState({ keepUsername = false } = {}) {
+  state.loginConfirmed = false;
+  if (!keepUsername) state.username = "";
+  state.current = null;
+  state.historyView = null;
+  state.conversations.clear();
+  state.groups.clear();
+  state.groupNames.clear();
+  state.online.clear();
+  state.pendingLogin.clear();
+  clearPendingAttachment();
+  if (!keepUsername) localStorage.removeItem("aiwechat.username");
+  localStorage.removeItem("aiwechat.groups");
+  localStorage.removeItem("aiwechat.groupNames");
+  document.body.classList.remove("chat-open");
+}
+
 function handleStatus(msg) {
   const { username, status, statuses } = msg.payload;
   if (username && status) {
@@ -249,13 +267,23 @@ function handleStatus(msg) {
 
 function handleHistory(msg) {
   const rows = Array.isArray(msg.payload.messages) ? msg.payload.messages : [];
-  for (const row of rows) {
-    const chatType = row.group_id ? "group" : "private";
-    const target = chatType === "group" ? row.group_id : row.sender === state.username ? row.receiver : row.sender;
-    const key = chatType === "group" ? groupKey(target) : privateKey(target);
-    addHistoryRow(key, row);
+  if (state.historyView) {
+    state.historyView.loading = false;
+    state.historyView.rows = rows.map(historyRowToMessage);
   }
   showToast(rows.length ? `已加载 ${rows.length} 条历史` : "暂无历史消息");
+}
+
+function historyRowToMessage(row) {
+  return {
+    id: row.message_id,
+    sender: row.sender,
+    content: row.content || row.payload?.content || "",
+    attachment: row.payload?.attachment || null,
+    timestamp: row.created_at,
+    system: false,
+    ai: row.message_type === "ai_response",
+  };
 }
 
 function resolvePrivateTarget(msg) {
@@ -299,22 +327,6 @@ function addChatMessage(key, msg) {
   if (!state.current) state.current = conv;
 }
 
-function addHistoryRow(key, row) {
-  const conv = ensureConversation(key, row.group_id ? "group" : "private", row.group_id || (row.sender === state.username ? row.receiver : row.sender));
-  if (!conv) return;
-  const id = row.message_id;
-  if (id && conv.messages.some((item) => item.id === id)) return;
-  conv.messages.push({
-    id,
-    sender: row.sender,
-    content: row.content || row.payload?.content || "",
-    attachment: row.payload?.attachment || null,
-    timestamp: row.created_at,
-    system: false,
-    ai: row.message_type === "ai_response",
-  });
-}
-
 function addSystemMessage(key, text) {
   const conv = key ? state.conversations.get(key) : null;
   if (!conv) {
@@ -350,6 +362,7 @@ function render() {
   els.avatarText.textContent = state.username ? state.username.slice(0, 1).toUpperCase() : "-";
   els.onlineSummary.textContent = `${[...state.online.values()].filter((item) => item === "online").length} 人在线`;
   els.authSubmit.textContent = state.mode === "login" ? "登录" : "注册";
+  document.body.classList.toggle("history-open", Boolean(state.historyView));
 
   renderComposerTools();
   renderConversations();
@@ -360,22 +373,28 @@ function render() {
 function renderComposerTools() {
   const aiAvailable = state.current?.type === "group";
   els.aiHintBtn.classList.toggle("hidden", !aiAvailable);
+  els.composer.classList.toggle("hidden", Boolean(state.historyView));
+  els.historyBtn.classList.toggle("hidden", Boolean(state.historyView) || !state.current);
+  els.historyBackBtn.classList.toggle("hidden", !state.historyView);
+  els.backBtn.classList.toggle("hidden", Boolean(state.historyView));
 }
 
 function renderConversations() {
   els.conversationList.innerHTML = "";
-  const conversations = [...state.conversations.values()].sort((a, b) => a.type.localeCompare(b.type));
+  const conversations = state.loginConfirmed
+    ? [...state.conversations.values()].filter((conv) => conv.type === "private").sort((a, b) => a.target.localeCompare(b.target))
+    : [];
   if (!conversations.length) {
     const empty = document.createElement("div");
     empty.className = "mini-item";
-    empty.textContent = "暂无会话";
+    empty.textContent = "暂无私聊";
     els.conversationList.appendChild(empty);
     return;
   }
   for (const conv of conversations) {
     const btn = document.createElement("button");
     btn.className = `conversation-item ${state.current?.key === conv.key ? "active" : ""}`;
-    btn.innerHTML = `<span><strong>${escapeHtml(titleFor(conv))}</strong><small>${escapeHtml(subtitleFor(conv))}</small></span><span>${conv.type === "group" ? "群" : "私"}</span>`;
+    btn.innerHTML = `<span><strong>${escapeHtml(titleFor(conv))}</strong><small>${escapeHtml(subtitleFor(conv))}</small></span><span>私</span>`;
     btn.addEventListener("click", () => openConversation(conv));
     els.conversationList.appendChild(btn);
   }
@@ -383,6 +402,13 @@ function renderConversations() {
 
 function renderGroups() {
   els.groupList.innerHTML = "";
+  if (!state.loginConfirmed) {
+    const empty = document.createElement("div");
+    empty.className = "mini-item";
+    empty.textContent = "暂无群组";
+    els.groupList.appendChild(empty);
+    return;
+  }
   for (const groupId of state.groups) {
     const row = document.createElement("div");
     row.className = "mini-item group-row";
@@ -397,28 +423,69 @@ function renderGroups() {
     row.append(openBtn, copyBtn);
     els.groupList.appendChild(row);
   }
+  if (!state.groups.size) {
+    const empty = document.createElement("div");
+    empty.className = "mini-item";
+    empty.textContent = "暂无群组";
+    els.groupList.appendChild(empty);
+  }
 }
 
 function renderMessages() {
+  if (state.historyView) {
+    renderHistoryView();
+    return;
+  }
   const conv = state.current;
   els.chatTitle.textContent = conv ? titleFor(conv) : "选择一个会话";
   els.chatSubtitle.textContent = conv ? subtitleFor(conv) : "私聊、群聊和 @AI 都在这里";
   els.messageList.innerHTML = "";
   if (!conv) return;
   for (const item of conv.messages) {
-    const row = document.createElement("div");
-    const mine = item.sender === state.username;
-    row.className = `message-row ${item.system ? "system" : mine ? "self" : ""}`;
-    const bubble = document.createElement("div");
-    bubble.className = "bubble";
-    const name = item.ai ? "AI助手" : mine ? "我" : item.sender || "未知";
-    bubble.innerHTML = item.system
-      ? escapeHtml(item.content)
-      : `<div class="bubble-meta">${escapeHtml(name)} · ${formatTime(item.timestamp)}</div>${renderMessageBody(item)}`;
-    row.appendChild(bubble);
-    els.messageList.appendChild(row);
+    renderMessageItem(item);
   }
   els.messageList.scrollTop = els.messageList.scrollHeight;
+}
+
+function renderHistoryView() {
+  const view = state.historyView;
+  const conv = view?.conversation || state.current;
+  els.chatTitle.textContent = conv ? `${titleFor(conv)} 的聊天历史` : "聊天历史";
+  els.chatSubtitle.textContent = "历史记录";
+  els.messageList.innerHTML = "";
+  if (!view) return;
+  if (view.loading) {
+    const row = document.createElement("div");
+    row.className = "history-empty";
+    row.textContent = "正在加载历史...";
+    els.messageList.appendChild(row);
+    return;
+  }
+  if (!view.rows.length) {
+    const row = document.createElement("div");
+    row.className = "history-empty";
+    row.textContent = "暂无历史消息";
+    els.messageList.appendChild(row);
+    return;
+  }
+  for (const item of view.rows) {
+    renderMessageItem(item);
+  }
+  els.messageList.scrollTop = 0;
+}
+
+function renderMessageItem(item) {
+  const row = document.createElement("div");
+  const mine = item.sender === state.username;
+  row.className = `message-row ${item.system ? "system" : mine ? "self" : ""}`;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const name = item.ai ? "AI助手" : mine ? "我" : item.sender || "未知";
+  bubble.innerHTML = item.system
+    ? escapeHtml(item.content)
+    : `<div class="bubble-meta">${escapeHtml(name)} · ${formatTime(item.timestamp)}</div>${renderMessageBody(item)}`;
+  row.appendChild(bubble);
+  els.messageList.appendChild(row);
 }
 
 function titleFor(conv) {
@@ -443,6 +510,7 @@ function shortId(groupId) {
 function openConversation(conv) {
   if (!conv) return;
   state.current = conv;
+  state.historyView = null;
   document.body.classList.add("chat-open");
   render();
 }
@@ -506,11 +574,19 @@ function sendChatPayload(payload) {
 function requestHistory() {
   const conv = state.current;
   if (!conv) return;
+  state.historyView = { conversation: conv, rows: [], loading: true };
+  clearPendingAttachment();
+  render();
   if (conv.type === "group") {
     send(message("history_request", { chat_type: "group", group_id: conv.target, limit: 50 }, { group_id: conv.target }));
   } else {
     send(message("history_request", { chat_type: "private", peer: conv.target, limit: 50 }));
   }
+}
+
+function closeHistoryView() {
+  state.historyView = null;
+  render();
 }
 
 function showToast(text) {
@@ -654,6 +730,10 @@ function formatBytes(bytes) {
 }
 
 function createPrivateConversation() {
+  if (!state.loginConfirmed) {
+    showToast("请先登录");
+    return;
+  }
   const peer = els.privatePeerInput.value.trim();
   if (!peer) {
     showToast("请输入对方用户名");
@@ -668,6 +748,10 @@ function createPrivateConversation() {
 }
 
 function createGroup() {
+  if (!state.loginConfirmed) {
+    showToast("请先登录");
+    return;
+  }
   const name = els.groupNameInput.value.trim();
   if (!name) {
     showToast("请输入群名称");
@@ -678,6 +762,10 @@ function createGroup() {
 }
 
 function joinGroup() {
+  if (!state.loginConfirmed) {
+    showToast("请先登录");
+    return;
+  }
   const groupId = els.joinGroupInput.value.trim();
   if (!groupId) {
     showToast("请输入群 ID");
@@ -757,6 +845,7 @@ els.reconnectBtn.addEventListener("click", connect);
 els.sendBtn.addEventListener("click", sendCurrentMessage);
 els.historyBtn.addEventListener("click", requestHistory);
 els.backBtn.addEventListener("click", () => document.body.classList.remove("chat-open"));
+els.historyBackBtn.addEventListener("click", closeHistoryView);
 els.aiHintBtn.addEventListener("click", () => {
   if (state.current?.type !== "group") return;
   if (!els.messageInput.value.startsWith("@AI")) els.messageInput.value = `@AI ${els.messageInput.value}`;

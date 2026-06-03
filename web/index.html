@@ -41,7 +41,7 @@
 
       <section class="panel">
         <div class="section-title">
-          <span>会话</span>
+          <span>私聊</span>
         </div>
         <div class="inline-form">
           <input id="privatePeerInput" placeholder="输入用户名开始私聊">
@@ -69,19 +69,24 @@
     <section class="chat-pane">
       <header class="chat-header">
         <button id="backBtn" class="icon-button mobile-only" title="返回" aria-label="返回">‹</button>
+        <button id="historyBackBtn" class="icon-button hidden" title="返回聊天" aria-label="返回聊天">‹</button>
         <div>
           <h2 id="chatTitle">选择一个会话</h2>
           <p id="chatSubtitle">私聊、群聊与 AI 助手，在一张安静的桌面上</p>
         </div>
-        <button id="historyBtn" class="icon-button" title="拉取历史" aria-label="拉取历史">⌕</button>
+        <button id="historyBtn" class="icon-button history-button" title="聊天历史" aria-label="聊天历史">
+          <span class="history-icon" aria-hidden="true"></span>
+        </button>
       </header>
 
       <div id="messageList" class="message-list"></div>
 
-      <footer class="composer">
+      <footer id="composer" class="composer">
         <div class="composer-tools">
           <button id="aiHintBtn" class="icon-button" title="插入 @AI" aria-label="插入 @AI">@</button>
-          <button id="imageBtn" class="icon-button" title="选择图片" aria-label="选择图片">□</button>
+          <button id="imageBtn" class="icon-button image-button" title="选择图片" aria-label="选择图片">
+            <span class="image-icon" aria-hidden="true"></span>
+          </button>
           <button id="audioFileBtn" class="icon-button" title="选择音频" aria-label="选择音频">♪</button>
           <button id="recordBtn" class="icon-button" title="录制语音" aria-label="录制语音">●</button>
         </div>
