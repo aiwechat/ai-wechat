@@ -682,11 +682,41 @@ function joinGroup() {
 }
 
 async function copyText(text) {
+  const value = String(text);
+  const copied = await writeClipboard(value);
+  if (copied) {
+    showToast(`已复制群ID:${value}`);
+    return;
+  }
+  showToast(`复制失败，请手动复制群ID:${value}`);
+}
+
+async function writeClipboard(text) {
   try {
-    await navigator.clipboard.writeText(text);
-    showToast("群 ID 已复制");
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
   } catch {
-    showToast(`群 ID：${text}`);
+    // Fall back to the legacy path below when the Clipboard API is blocked.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
   }
 }
 
