@@ -99,6 +99,7 @@ function connect() {
     setConnected(false, "连接断开");
     stopHeartbeat();
     state.loginConfirmed = false;
+    document.body.classList.remove("chat-open");
     render();
     scheduleReconnect();
   });
