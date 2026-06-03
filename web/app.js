@@ -351,9 +351,15 @@ function render() {
   els.onlineSummary.textContent = `${[...state.online.values()].filter((item) => item === "online").length} 人在线`;
   els.authSubmit.textContent = state.mode === "login" ? "登录" : "注册";
 
+  renderComposerTools();
   renderConversations();
   renderGroups();
   renderMessages();
+}
+
+function renderComposerTools() {
+  const aiAvailable = state.current?.type === "group";
+  els.aiHintBtn.classList.toggle("hidden", !aiAvailable);
 }
 
 function renderConversations() {
@@ -752,6 +758,7 @@ els.sendBtn.addEventListener("click", sendCurrentMessage);
 els.historyBtn.addEventListener("click", requestHistory);
 els.backBtn.addEventListener("click", () => document.body.classList.remove("chat-open"));
 els.aiHintBtn.addEventListener("click", () => {
+  if (state.current?.type !== "group") return;
   if (!els.messageInput.value.startsWith("@AI")) els.messageInput.value = `@AI ${els.messageInput.value}`;
   els.messageInput.focus();
 });
