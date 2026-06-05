@@ -34,5 +34,6 @@ Thumbs.db
 
 # Personal files
 Agent.md
+.claude
 
 *.pdf
