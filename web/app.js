@@ -582,12 +582,20 @@ function showToast(text) {
 function renderMessageBody(item) {
   const parts = [];
   if (item.content) {
-    parts.push(`<div class="message-text">${escapeHtml(item.content)}</div>`);
+    parts.push(item.ai ? renderMarkdown(item.content) : `<div class="message-text">${escapeHtml(item.content)}</div>`);
   }
   if (item.attachment) {
     parts.push(renderAttachment(item.attachment));
   }
   return parts.join("");
+}
+
+function renderMarkdown(content) {
+  if (!window.marked || !window.DOMPurify) {
+    return `<div class="message-text">${escapeHtml(content)}</div>`;
+  }
+  const html = window.marked.parse(String(content), { breaks: true, gfm: true });
+  return `<div class="message-markdown">${window.DOMPurify.sanitize(html)}</div>`;
 }
 
 function renderAttachment(attachment) {

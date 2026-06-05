@@ -555,6 +555,58 @@ textarea:focus {
   margin-top: 9px;
 }
 
+.message-markdown {
+  line-height: 1.55;
+}
+
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown pre,
+.message-markdown blockquote {
+  margin: 0 0 8px;
+}
+
+.message-markdown :last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 20px;
+}
+
+.message-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(36, 28, 22, 0.08);
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 0.94em;
+}
+
+.message-markdown pre {
+  overflow-x: auto;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: rgba(36, 28, 22, 0.08);
+}
+
+.message-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.message-markdown blockquote {
+  padding-left: 10px;
+  border-left: 3px solid rgba(71, 107, 90, 0.35);
+  color: var(--soft-ink);
+}
+
+.message-markdown a {
+  color: var(--blueprint);
+}
+
 .attachment {
   margin: 0;
 }
