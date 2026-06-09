@@ -86,7 +86,7 @@ if (!els.fileBtn && els.recordBtn?.parentElement) {
 }
 
 function requestId() {
-  return crypto.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random()}`;
+  return crypto.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random()}`.replaceAll(".", "");
 }
 
 function message(type, payload = {}, extra = {}) {

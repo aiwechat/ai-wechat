@@ -185,7 +185,7 @@ class MessageRouter:
         default_upload_dir = Path("data") / "uploads"
         if db.db_path != Path(":memory:"):
             default_upload_dir = db.db_path.parent / "uploads"
-        self.upload_dir = Path(upload_dir) if upload_dir is not None else default_upload_dir
+        self.upload_dir = (Path(upload_dir) if upload_dir is not None else default_upload_dir).resolve()
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.ai_service = ai_service or AIService()
         self.moderation = moderation or ModerationService()
