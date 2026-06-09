@@ -21,13 +21,11 @@ from common.protocol import (
     ProtocolError,
     decode_frames,
 )
-from server.database import DEFAULT_DB_PATH, init_db
-from server.group_manager import GroupManager
-from server.heartbeat import HeartbeatMonitor
-from server.message_router import MessageRouter
+from server.database import DEFAULT_DB_PATH
 from server.ai_service import AIResponder
 from server.moderation import ModerationService
-from server.user_manager import ClientSession, UserManager
+from server.relay import ChatRelayService
+from server.user_manager import ClientSession
 
 
 logger = logging.getLogger(__name__)
@@ -53,34 +51,35 @@ class ChatServer:
         moderation: ModerationService | None = None,
         ai_workers: int = 4,
         ai_cooldown_seconds: float = 3.0,
+        relay: ChatRelayService | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.backlog = backlog
         self.recv_timeout = recv_timeout
 
-        self.db = init_db(db_path)
-        self.users = UserManager(self.db)
-        self.groups = GroupManager(self.db)
-        self.router = MessageRouter(
-            self.db,
-            self.users,
-            self.groups,
+        self.relay = relay or ChatRelayService(
+            db_path=db_path,
+            heartbeat_timeout=heartbeat_timeout,
+            heartbeat_interval=heartbeat_interval,
             ai_service=ai_service,
             moderation=moderation,
             ai_workers=ai_workers,
             ai_cooldown_seconds=ai_cooldown_seconds,
         )
-        self.heartbeat = HeartbeatMonitor(
-            self.users,
-            timeout_seconds=heartbeat_timeout,
-            interval_seconds=heartbeat_interval,
-        )
+        self._owns_relay = relay is None
+        self.db = self.relay.db
+        self.users = self.relay.users
+        self.groups = self.relay.groups
+        self.router = self.relay.router
+        self.heartbeat = self.relay.heartbeat
 
         self._server_sock: socket.socket | None = None
         self._accept_thread: threading.Thread | None = None
         self._client_threads: list[threading.Thread] = []
         self._client_threads_lock = threading.Lock()
+        self._sessions: dict[str, ClientSession] = {}
+        self._sessions_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._actual_port: int | None = None
 
@@ -89,6 +88,7 @@ class ChatServer:
     def start(self) -> int:
         """Bind, listen, and start background threads. Returns the bound port."""
 
+        self.relay.start()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((self.host, self.port))
@@ -97,7 +97,6 @@ class ChatServer:
         self._server_sock = sock
         self._actual_port = sock.getsockname()[1]
 
-        self.heartbeat.start()
         self._accept_thread = threading.Thread(
             target=self._accept_loop,
             name="AcceptLoop",
@@ -113,8 +112,6 @@ class ChatServer:
             return
         logger.info("stopping chat server")
         self._stop_event.set()
-        self.heartbeat.stop(join_timeout=join_timeout)
-        self.router.shutdown()
 
         sock = self._server_sock
         self._server_sock = None
@@ -124,12 +121,14 @@ class ChatServer:
             except OSError:
                 pass
 
-        # Tear down every active session so reader threads exit.
-        for session in self.users.all_sessions():
+        # Tear down sessions accepted by this TCP gateway so reader threads exit.
+        for session in self._gateway_sessions():
             try:
                 self.users.remove_session(session)
             except Exception:
                 logger.exception("error while closing session %s", session.label)
+        if self._owns_relay:
+            self.relay.stop(join_timeout=join_timeout)
 
         if self._accept_thread is not None:
             self._accept_thread.join(timeout=join_timeout)
@@ -177,6 +176,7 @@ class ChatServer:
     def _client_loop(self, sock: socket.socket, address: tuple[str, int]) -> None:
         session = ClientSession(sock=sock, address=address)
         self.users.register_session(session)
+        self._track_session(session)
         logger.debug("client connected from %s", address)
         buffer = b""
         try:
@@ -210,6 +210,7 @@ class ChatServer:
             logger.exception("client loop crashed for %s", session.label)
         finally:
             self.users.remove_session(session)
+            self._untrack_session(session)
             logger.debug("client disconnected: %s", session.label)
 
     # --- introspection (handy for tests) ---------------------------------
@@ -221,6 +222,18 @@ class ChatServer:
             "online_users": self.users.online_users(),
             "total_sessions": len(self.users.all_sessions()),
         }
+
+    def _track_session(self, session: ClientSession) -> None:
+        with self._sessions_lock:
+            self._sessions[session.client_id] = session
+
+    def _untrack_session(self, session: ClientSession) -> None:
+        with self._sessions_lock:
+            self._sessions.pop(session.client_id, None)
+
+    def _gateway_sessions(self) -> list[ClientSession]:
+        with self._sessions_lock:
+            return list(self._sessions.values())
 
 
 def _configure_logging(verbose: bool) -> None:

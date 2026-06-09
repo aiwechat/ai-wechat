@@ -10,6 +10,8 @@
 - `server/group_manager.py`：群组业务封装，创建/加入/退出/列出成员，统一抛出 `ProtocolError`。
 - `server/message_router.py`：根据 `MessageType` 分发消息，注册、登录、私聊、群聊、群组操作、历史记录拉取。
 - `server/heartbeat.py`：后台心跳扫描线程，定期检测超时连接并踢出。
+- `server/relay.py`：共享聊天中继核心，统一持有数据库、在线用户表、群组管理、消息路由和心跳检测。
+- `server/relay_service.py`：CLI TCP 网关和浏览器 WebSocket 网关的统一启动入口，让两种客户端共享同一个在线会话表并互相实时聊天。
 - `server/server.py`：TCP 服务器入口，accept 循环、每连接一线程处理帧收发，可命令行启动。
 - `server/web_server.py`：浏览器 GUI 入口，提供静态页面和 WebSocket 网关，复用服务端消息路由。
 - `client/client.py`：CLI 客户端核心，管理 TCP 连接、发送协议消息、处理服务端响应和本地状态。
@@ -34,6 +36,7 @@
 - 命令行客户端支持连接服务端、注册登录、私聊、群聊、群组管理、历史拉取、在线状态查看和手动心跳。
 - 浏览器 GUI 支持电脑和手机访问，可登录注册、私聊群聊、建群加群、拉取历史和触发 `@AI`。
 - 浏览器 GUI 支持图片和语音消息；群聊中可用 `@AI + 图片` 触发多模态图片分析。
+- 统一中继服务支持 CLI 客户端和浏览器 GUI 客户端互相实时私聊、群聊、同步在线状态，并共享同一套历史记录。
 - 客户端本地历史仅用于当前会话显示，重启后以服务端 `history_request` / `history_response` 为准。
 
 ## AI API 配置
@@ -64,6 +67,34 @@ OPENAI_MODEL=gpt-4o-mini
 如果没有配置 API Key，`@AI` 会返回本地降级回复，方便离线开发和测试。
 
 ## 启动服务端
+
+如果需要 CLI 和浏览器 GUI 互相实时聊天，推荐启动统一中继服务：
+
+```bash
+python3 -m server.relay_service --tcp-host 0.0.0.0 --tcp-port 9000 --web-host 0.0.0.0 --web-port 8080
+```
+
+然后：
+
+- CLI 连接 `127.0.0.1:9000`。
+- 浏览器访问 `http://127.0.0.1:8080`。
+- 手机和电脑在同一个局域网时，浏览器访问电脑的局域网 IP，例如 `http://192.168.1.10:8080`。
+
+统一中继服务的常用参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--tcp-host` | `0.0.0.0` | CLI TCP 网关监听地址 |
+| `--tcp-port` | `9000` | CLI TCP 网关监听端口 |
+| `--web-host` | `0.0.0.0` | 浏览器 HTTP/WebSocket 网关监听地址 |
+| `--web-port` | `8080` | 浏览器 HTTP/WebSocket 网关监听端口 |
+| `--db` | `data/chat.db` | SQLite 数据库路径 |
+| `--heartbeat-timeout` | `60.0` | 心跳超时秒数 |
+| `--heartbeat-interval` | `15.0` | 心跳扫描间隔秒数 |
+| `--recv-timeout` | `30.0` | CLI TCP 连接接收超时秒数 |
+| `-v` / `--verbose` | off | 开启 DEBUG 日志 |
+
+只需要 TCP CLI 服务端时，也可以单独启动：
 
 ```bash
 python3 -m server.server --host 0.0.0.0 --port 9000
@@ -121,6 +152,8 @@ python3 -m client.client --host 127.0.0.1 --port 9000
 | `/quit` | 退出客户端 |
 
 ## 启动浏览器 GUI
+
+如果需要和 CLI 客户端互通，请使用上面的 `server.relay_service`。只需要浏览器 GUI 时，可以单独启动：
 
 ```bash
 python3 -m server.web_server --host 0.0.0.0 --port 8080

@@ -12,7 +12,6 @@ import argparse
 import base64
 from dataclasses import dataclass, field
 import hashlib
-import json
 import logging
 from pathlib import Path
 import signal
@@ -25,12 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from uuid import uuid4
 
-from common.protocol import ErrorCode, ProtocolError, ProtocolMessage, make_error
-from server.database import DEFAULT_DB_PATH, init_db
-from server.group_manager import GroupManager
-from server.heartbeat import HeartbeatMonitor
-from server.message_router import MessageRouter
-from server.user_manager import UserManager
+from common.protocol import ProtocolError, ProtocolMessage
+from server.database import DEFAULT_DB_PATH
+from server.relay import ChatRelayService
 
 
 logger = logging.getLogger(__name__)
@@ -107,27 +103,32 @@ class WebChatServer:
         db_path: str | Path = DEFAULT_DB_PATH,
         heartbeat_timeout: float = 60.0,
         heartbeat_interval: float = 15.0,
+        relay: ChatRelayService | None = None,
     ) -> None:
         self.host = host
         self.port = port
-        self.db = init_db(db_path)
-        self.users = UserManager(self.db)
-        self.groups = GroupManager(self.db)
-        self.router = MessageRouter(self.db, self.users, self.groups)
-        self.heartbeat = HeartbeatMonitor(
-            self.users,
-            timeout_seconds=heartbeat_timeout,
-            interval_seconds=heartbeat_interval,
+        self.relay = relay or ChatRelayService(
+            db_path=db_path,
+            heartbeat_timeout=heartbeat_timeout,
+            heartbeat_interval=heartbeat_interval,
         )
+        self._owns_relay = relay is None
+        self.db = self.relay.db
+        self.users = self.relay.users
+        self.groups = self.relay.groups
+        self.router = self.relay.router
+        self.heartbeat = self.relay.heartbeat
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._sessions: dict[str, WebClientSession] = {}
+        self._sessions_lock = threading.Lock()
 
     def start(self) -> int:
+        self.relay.start()
         handler_cls = self._make_handler()
         httpd = _ThreadingHTTPServer((self.host, self.port), handler_cls)
         httpd.chat_server = self  # type: ignore[attr-defined]
         self._httpd = httpd
-        self.heartbeat.start()
         self._thread = threading.Thread(target=httpd.serve_forever, name="WebChatServer", daemon=True)
         self._thread.start()
         actual_port = httpd.server_address[1]
@@ -135,9 +136,7 @@ class WebChatServer:
         return actual_port
 
     def stop(self, *, join_timeout: float = 5.0) -> None:
-        self.heartbeat.stop(join_timeout=join_timeout)
-        self.router.shutdown()
-        for session in self.users.all_sessions():
+        for session in self._gateway_sessions():
             self.users.remove_session(session)
         if self._httpd is not None:
             self._httpd.shutdown()
@@ -146,6 +145,8 @@ class WebChatServer:
         if self._thread is not None:
             self._thread.join(timeout=join_timeout)
             self._thread = None
+        if self._owns_relay:
+            self.relay.stop(join_timeout=join_timeout)
 
     def serve_forever(self) -> None:
         self.start()
@@ -212,6 +213,7 @@ class WebChatServer:
                     address=(self.client_address[0], self.client_address[1]),
                 )
                 chat_server.users.register_session(session)
+                chat_server._track_session(session)
                 try:
                     while not session.closed:
                         frame = read_ws_message(self.connection)
@@ -235,8 +237,21 @@ class WebChatServer:
                     pass
                 finally:
                     chat_server.users.remove_session(session)
+                    chat_server._untrack_session(session)
 
         return WebHandler
+
+    def _track_session(self, session: WebClientSession) -> None:
+        with self._sessions_lock:
+            self._sessions[session.client_id] = session
+
+    def _untrack_session(self, session: WebClientSession) -> None:
+        with self._sessions_lock:
+            self._sessions.pop(session.client_id, None)
+
+    def _gateway_sessions(self) -> list[WebClientSession]:
+        with self._sessions_lock:
+            return list(self._sessions.values())
 
 
 class _ThreadingHTTPServer(ThreadingHTTPServer):

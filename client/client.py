@@ -74,16 +74,21 @@ class ChatClient:
         self.state.connected = False
         self.state.login_confirmed = False
         self.state.user_status.clear()
-        if self.receiver is not None:
-            self.receiver.stop()
-            self.receiver = None
-        if self.sock is not None:
+        receiver = self.receiver
+        self.receiver = None
+        if receiver is not None:
+            receiver.stop()
+
+        sock = self.sock
+        self.sock = None
+        if sock is not None:
             try:
-                self.sock.shutdown(socket.SHUT_RDWR)
+                sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
-            self.sock.close()
-            self.sock = None
+            sock.close()
+        if receiver is not None:
+            receiver.join(timeout=1.0)
         print("disconnected")
 
     def reconnect(self) -> None:
