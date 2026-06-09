@@ -1044,6 +1044,12 @@ textarea:focus {
     display: grid;
   }
 
+  /* On phones the chat pane is a full-screen overlay that hides the rail and
+     conversation list, so reveal the back button to get back to the panel. */
+  .mobile-only {
+    display: grid;
+  }
+
   .brand h1 {
     font-size: 25px;
   }
