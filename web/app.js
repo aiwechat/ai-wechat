@@ -2,12 +2,16 @@ const state = {
   socket: null,
   mode: "login",
   username: localStorage.getItem("aiwechat.username") || "",
+  section: "user",
+  railExpanded: localStorage.getItem("aiwechat.railExpanded") === "1",
+  theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light",
   connected: false,
   loginConfirmed: false,
   current: null,
   conversations: new Map(),
   groups: new Set(),
   groupNames: new Map(),
+  friends: new Set(),
   online: new Map(),
   pendingLogin: new Map(),
   pendingHistory: new Map(),
@@ -22,6 +26,13 @@ const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  appShell: document.querySelector(".app-shell"),
+  railToggle: $("railToggle"),
+  themeToggle: $("themeToggle"),
+  themeLabel: $("themeLabel"),
+  sectionTitle: $("sectionTitle"),
+  statusDot: $("statusDot"),
+  onlineUsers: $("onlineUsers"),
   connectionStatus: $("connectionStatus"),
   reconnectBtn: $("reconnectBtn"),
   authPanel: $("authPanel"),
@@ -147,6 +158,7 @@ function scheduleReconnect() {
 function setConnected(connected, text) {
   state.connected = connected;
   els.connectionStatus.textContent = text;
+  if (els.appShell) els.appShell.classList.toggle("connected", connected);
   render();
 }
 
@@ -215,19 +227,20 @@ function handleLogin(msg) {
   state.conversations.clear();
   state.groups.clear();
   state.groupNames.clear();
+  state.friends.clear();
+  state.online.clear();
   state.username = username;
   state.loginConfirmed = true;
   localStorage.setItem("aiwechat.username", username);
-  localStorage.removeItem("aiwechat.groups");
-  localStorage.removeItem("aiwechat.groupNames");
+  loadUserMemory();
   state.online.set(username, "online");
   for (const item of msg.payload.online_users || []) {
     state.online.set(String(item), "online");
-    if (String(item) !== username) ensureConversation(privateKey(String(item)), "private", String(item));
   }
   for (const group of msg.payload.groups || []) {
     addKnownGroup(group.group_id, group.name);
   }
+  state.section = "chat";
   showToast(`已登录：${username}`);
 }
 
@@ -250,13 +263,13 @@ function resetSessionState({ keepUsername = false } = {}) {
   state.conversations.clear();
   state.groups.clear();
   state.groupNames.clear();
+  state.friends.clear();
   state.online.clear();
   state.pendingLogin.clear();
   state.pendingHistory.clear();
   clearPendingAttachment();
   if (!keepUsername) localStorage.removeItem("aiwechat.username");
-  localStorage.removeItem("aiwechat.groups");
-  localStorage.removeItem("aiwechat.groupNames");
+  state.section = "user";
   document.body.classList.remove("chat-open");
 }
 
@@ -264,7 +277,6 @@ function handleStatus(msg) {
   const { username, status, statuses } = msg.payload;
   if (username && status) {
     state.online.set(String(username), String(status));
-    if (String(username) !== state.username) ensureConversation(privateKey(String(username)), "private", String(username));
   }
   if (Array.isArray(statuses)) {
     for (const row of statuses) {
@@ -335,7 +347,7 @@ function ensureConversation(key, type, target) {
 function addChatMessage(key, msg) {
   const type = msg.type === "group_msg" ? "group" : "private";
   const target = type === "group" ? msg.group_id : resolvePrivateTarget(msg);
-  const conv = ensureConversation(key, type, target);
+  const conv = type === "private" ? addFriend(target) : ensureConversation(key, type, target);
   if (!conv) return;
   conv.messages.push({
     sender: msg.sender,
@@ -357,26 +369,137 @@ function addSystemMessage(key, text) {
   conv.messages.push({ sender: "system", content: text, timestamp: new Date().toISOString(), system: true });
 }
 
+function userKey(suffix) {
+  return `aiwechat.u.${state.username}.${suffix}`;
+}
+
+function loadUserMemory() {
+  if (!state.username) return;
+  try {
+    const names = JSON.parse(localStorage.getItem(userKey("groupNames")) || "{}");
+    for (const [id, name] of Object.entries(names)) {
+      if (name) state.groupNames.set(String(id), String(name));
+    }
+  } catch {
+    // Ignore a corrupt group-name cache.
+  }
+  try {
+    const friends = JSON.parse(localStorage.getItem(userKey("friends")) || "[]");
+    for (const peer of friends) {
+      const name = String(peer);
+      if (!name || name === state.username) continue;
+      state.friends.add(name);
+      ensureConversation(privateKey(name), "private", name);
+    }
+  } catch {
+    // Ignore a corrupt friends cache.
+  }
+}
+
+function saveGroupNames() {
+  if (!state.username) return;
+  localStorage.setItem(userKey("groupNames"), JSON.stringify(Object.fromEntries(state.groupNames)));
+}
+
+function saveFriends() {
+  if (!state.username) return;
+  localStorage.setItem(userKey("friends"), JSON.stringify([...state.friends]));
+}
+
+function addFriend(peer) {
+  const name = String(peer || "").trim();
+  if (!name || name === state.username) return null;
+  if (!state.friends.has(name)) {
+    state.friends.add(name);
+    saveFriends();
+  }
+  return ensureConversation(privateKey(name), "private", name);
+}
+
 function addKnownGroup(groupId, name) {
   if (!groupId) return;
   const normalizedId = String(groupId);
   state.groups.add(normalizedId);
   if (name) {
     state.groupNames.set(normalizedId, String(name));
-    localStorage.setItem("aiwechat.groupNames", JSON.stringify(Object.fromEntries(state.groupNames)));
+    saveGroupNames();
   }
-  localStorage.setItem("aiwechat.groups", JSON.stringify([...state.groups]));
   ensureConversation(groupKey(normalizedId), "group", normalizedId);
 }
 
 function removeKnownGroup(groupId) {
   state.groups.delete(String(groupId));
   state.groupNames.delete(String(groupId));
-  localStorage.setItem("aiwechat.groups", JSON.stringify([...state.groups]));
-  localStorage.setItem("aiwechat.groupNames", JSON.stringify(Object.fromEntries(state.groupNames)));
+  saveGroupNames();
+}
+
+const SECTION_TITLES = { user: "用户", group: "群组", chat: "私聊" };
+
+function renderShell() {
+  if (!els.appShell) return;
+  els.appShell.dataset.rail = state.railExpanded ? "expanded" : "collapsed";
+  els.appShell.dataset.section = state.section;
+  els.sectionTitle.textContent = SECTION_TITLES[state.section] || "";
+}
+
+function setSection(section) {
+  if (!SECTION_TITLES[section]) return;
+  state.section = section;
+  renderShell();
+}
+
+function toggleRail() {
+  state.railExpanded = !state.railExpanded;
+  localStorage.setItem("aiwechat.railExpanded", state.railExpanded ? "1" : "0");
+  renderShell();
+}
+
+function applyTheme(theme) {
+  state.theme = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", state.theme);
+  localStorage.setItem("aiwechat.theme", state.theme);
+  if (els.themeLabel) els.themeLabel.textContent = state.theme === "dark" ? "夜间" : "日间";
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+function appendEmpty(container, text) {
+  const empty = document.createElement("div");
+  empty.className = "mini-item";
+  empty.textContent = text;
+  container.appendChild(empty);
+}
+
+function renderOnlineUsers() {
+  els.onlineUsers.innerHTML = "";
+  if (!state.loginConfirmed) {
+    appendEmpty(els.onlineUsers, "登录后查看在线用户");
+    return;
+  }
+  const others = [...state.online.entries()]
+    .filter(([name, status]) => status === "online" && name !== state.username)
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+  if (!others.length) {
+    appendEmpty(els.onlineUsers, "暂无其他在线用户");
+    return;
+  }
+  for (const name of others) {
+    const btn = document.createElement("button");
+    btn.className = "conversation-item";
+    btn.innerHTML = `<span><strong>${escapeHtml(name)}</strong><small>在线</small></span><span>聊</span>`;
+    btn.addEventListener("click", () => {
+      state.section = "chat";
+      openConversation(addFriend(name));
+    });
+    els.onlineUsers.appendChild(btn);
+  }
 }
 
 function render() {
+  renderShell();
   els.authPanel.classList.toggle("hidden", state.loginConfirmed);
   els.profilePanel.classList.toggle("hidden", !state.loginConfirmed);
   els.currentUser.textContent = state.username || "未登录";
@@ -387,6 +510,7 @@ function render() {
   renderComposerTools();
   renderConversations();
   renderGroups();
+  renderOnlineUsers();
   renderMessages();
 }
 
@@ -726,7 +850,7 @@ function createPrivateConversation() {
     showToast("不能和自己私聊");
     return;
   }
-  openConversation(ensureConversation(privateKey(peer), "private", peer));
+  openConversation(addFriend(peer));
   els.privatePeerInput.value = "";
 }
 
@@ -881,6 +1005,13 @@ els.joinGroupInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinGroup();
 });
 
+document.querySelectorAll(".rail-item").forEach((item) => {
+  item.addEventListener("click", () => setSection(item.dataset.section));
+});
+els.railToggle.addEventListener("click", toggleRail);
+els.themeToggle.addEventListener("click", toggleTheme);
+
+applyTheme(state.theme);
 els.usernameInput.value = state.username;
 connect();
 render();

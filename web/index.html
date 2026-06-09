@@ -1,70 +1,140 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI WeChat</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash of the wrong palette.
+    try {
+      const saved = localStorage.getItem("aiwechat.theme");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-theme", saved || (prefersDark ? "dark" : "light"));
+    } catch (err) { /* private mode / storage disabled */ }
+  </script>
 </head>
 <body>
-  <div class="ambient-layer" aria-hidden="true"></div>
-  <main class="app-shell">
-    <aside class="sidebar">
-      <section class="brand-row">
-        <div>
-          <h1>AI WeChat</h1>
-          <p><span class="status-dot"></span><span id="connectionStatus">未连接</span></p>
-        </div>
-        <button id="reconnectBtn" class="icon-button" title="重新连接" aria-label="重新连接">↻</button>
-      </section>
+  <main class="app-shell" data-rail="collapsed" data-section="user">
+    <nav class="rail" aria-label="主导航">
+      <button id="railToggle" class="rail-btn rail-toggle" title="展开/收起" aria-label="展开或收起侧栏">
+        <span class="rail-icon">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </span>
+        <span class="rail-label">收起</span>
+      </button>
 
-      <section id="authPanel" class="panel">
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-mode="login">登录</button>
-          <button class="tab" data-mode="register">注册</button>
-        </div>
-        <label>用户名<input id="usernameInput" autocomplete="username"></label>
-        <label>密码<input id="passwordInput" type="password" autocomplete="current-password"></label>
-        <button id="authSubmit" class="primary-button">登录</button>
-      </section>
+      <div class="rail-nav" role="tablist">
+        <button class="rail-item" data-section="user" role="tab" title="用户" aria-label="用户">
+          <span class="rail-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.6 3.6-6 8-6s8 2.4 8 6"/></svg>
+          </span>
+          <span class="rail-label">用户</span>
+        </button>
+        <button class="rail-item" data-section="group" role="tab" title="群组" aria-label="群组">
+          <span class="rail-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5"/><path d="M16 5.4a3 3 0 0 1 0 5.8"/><path d="M17.6 14.2c2.1.5 3.4 2.1 3.4 4.2"/></svg>
+          </span>
+          <span class="rail-label">群组</span>
+        </button>
+        <button class="rail-item" data-section="chat" role="tab" title="私聊" aria-label="私聊">
+          <span class="rail-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9.5L5 19.5V6a1 1 0 0 1 1-1Z"/></svg>
+          </span>
+          <span class="rail-label">私聊</span>
+        </button>
+      </div>
 
-      <section id="profilePanel" class="profile hidden">
-        <div>
-          <span class="avatar" id="avatarText">-</span>
-        </div>
-        <div>
-          <strong id="currentUser">未登录</strong>
-          <p id="onlineSummary">0 人在线</p>
-        </div>
-        <button id="logoutBtn" class="icon-button" title="退出登录" aria-label="退出登录">⏻</button>
-      </section>
+      <button id="themeToggle" class="rail-btn theme-toggle" title="日间 / 夜间" aria-label="切换日间或夜间模式">
+        <span class="rail-icon">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.4A8 8 0 0 1 9.6 4 7 7 0 1 0 20 14.4Z"/></svg>
+        </span>
+        <span class="rail-label" id="themeLabel">夜间</span>
+      </button>
+    </nav>
 
-      <section class="panel">
-        <div class="section-title">
-          <span>私聊</span>
+    <section class="side-panel">
+      <header class="side-head">
+        <h2 id="sectionTitle">用户</h2>
+        <div class="conn">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="connectionStatus">未连接</span>
+          <button id="reconnectBtn" class="icon-button" title="重新连接" aria-label="重新连接">↻</button>
         </div>
-        <div class="inline-form">
-          <input id="privatePeerInput" placeholder="输入用户名开始私聊">
-          <button id="newPrivateBtn" class="small-button">开始</button>
-        </div>
-        <div id="conversationList" class="conversation-list"></div>
-      </section>
+      </header>
 
-      <section class="panel">
-        <div class="section-title">
-          <span>群组</span>
+      <div class="side-body">
+        <!-- USER -->
+        <div class="view" data-view="user">
+          <div class="brand">
+            <h1>AI WeChat</h1>
+            <p>私聊、群聊与 AI 助手，在一处安静地展开</p>
+          </div>
+
+          <section id="authPanel" class="panel">
+            <div class="tabs" role="tablist">
+              <button class="tab active" data-mode="login">登录</button>
+              <button class="tab" data-mode="register">注册</button>
+            </div>
+            <label>用户名<input id="usernameInput" autocomplete="username"></label>
+            <label>密码<input id="passwordInput" type="password" autocomplete="current-password"></label>
+            <button id="authSubmit" class="primary-button">登录</button>
+          </section>
+
+          <section id="profilePanel" class="profile hidden">
+            <span class="avatar" id="avatarText">-</span>
+            <div class="profile-meta">
+              <strong id="currentUser">未登录</strong>
+              <p id="onlineSummary">0 人在线</p>
+            </div>
+            <button id="logoutBtn" class="icon-button" title="退出登录" aria-label="退出登录">⏻</button>
+          </section>
+
+          <section class="panel">
+            <div class="section-title"><span>在线用户</span></div>
+            <div id="onlineUsers" class="mini-list"></div>
+          </section>
         </div>
-        <div class="inline-form">
-          <input id="groupNameInput" placeholder="输入群名称">
-          <button id="createGroupBtn" class="small-button">创建</button>
+
+        <!-- GROUP -->
+        <div class="view" data-view="group">
+          <section class="panel">
+            <div class="section-title"><span>创建群组</span></div>
+            <div class="inline-form">
+              <input id="groupNameInput" placeholder="输入群名称">
+              <button id="createGroupBtn" class="small-button">创建</button>
+            </div>
+            <div class="section-title"><span>加入群组</span></div>
+            <div class="inline-form">
+              <input id="joinGroupInput" placeholder="输入群 ID 加入">
+              <button id="joinGroupBtn" class="small-button">加入</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title"><span>我的群组</span></div>
+            <div id="groupList" class="mini-list"></div>
+          </section>
         </div>
-        <div class="inline-form">
-          <input id="joinGroupInput" placeholder="输入群 ID 加入">
-          <button id="joinGroupBtn" class="small-button">加入</button>
+
+        <!-- CHAT -->
+        <div class="view" data-view="chat">
+          <section class="panel">
+            <div class="section-title"><span>发起私聊</span></div>
+            <div class="inline-form">
+              <input id="privatePeerInput" placeholder="输入用户名开始私聊">
+              <button id="newPrivateBtn" class="small-button">开始</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title"><span>好友与私聊</span></div>
+            <div id="conversationList" class="conversation-list"></div>
+          </section>
         </div>
-        <div id="groupList" class="mini-list"></div>
-      </section>
-    </aside>
+      </div>
+    </section>
 
     <section class="chat-pane">
       <header class="chat-header">
