@@ -62,6 +62,28 @@ class WebServerTest(unittest.TestCase):
             self.assertEqual(incoming["type"], MessageType.REGISTER.value)
             self.assertEqual(incoming["payload"]["username"], "web-alice")
 
+    def test_file_download_by_token(self) -> None:
+        upload_path = Path(self.tmpdir.name) / "uploads" / "file-web-1"
+        upload_path.parent.mkdir(parents=True, exist_ok=True)
+        upload_path.write_bytes(b"download me")
+        self.server.db.create_user("alice", "alice-pw")
+        self.server.db.create_user("bob", "bob-pw")
+        transfer = self.server.db.create_file_transfer(
+            sender="alice",
+            receiver="bob",
+            filename="note.txt",
+            filesize=11,
+            file_id="file-web-1",
+            mime="text/plain",
+            storage_path=str(upload_path),
+            download_token="token-1",
+        )
+        self.server.db.update_file_transfer(transfer["file_id"], status="finished", offset=11)
+
+        with urlopen(f"http://127.0.0.1:{self.port}/files/file-web-1?token=token-1", timeout=5.0) as response:
+            self.assertEqual(response.read(), b"download me")
+            self.assertEqual(response.headers["Content-Type"], "text/plain")
+
 
 class WebSocketFrameTest(unittest.TestCase):
     def test_read_ws_message_reassembles_fragmented_text(self) -> None:

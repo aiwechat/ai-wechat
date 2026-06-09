@@ -8,7 +8,12 @@ Run from the project root with:
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass, field
+import hashlib
+import mimetypes
+from pathlib import Path
+import secrets
 import socket
 from typing import Any
 
@@ -21,6 +26,7 @@ from .receiver import Receiver
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9000
 SOCKET_TIMEOUT_SECONDS = 1.0
+FILE_CHUNK_BYTES = 64 * 1024
 
 
 @dataclass(slots=True)
@@ -143,6 +149,76 @@ class ChatClient:
         )
         return self.send_message(message)
 
+    def send_file(self, chat_type: str, target: str, path: str | Path) -> str:
+        file_path = Path(path)
+        if not file_path.is_file():
+            raise ValueError(f"file not found: {file_path}")
+        file_id = secrets.token_hex(16)
+        filesize = file_path.stat().st_size
+        mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        digest = self._sha256_file(file_path)
+        start_payload = {
+            "file_id": file_id,
+            "filename": file_path.name,
+            "filesize": filesize,
+            "mime": mime,
+            "sha256": digest,
+        }
+        if chat_type == "private":
+            start = make_message(
+                MessageType.FILE_START,
+                sender=self.state.username,
+                receiver=target,
+                payload={**start_payload, "receiver": target},
+            )
+        elif chat_type == "group":
+            start = make_message(
+                MessageType.FILE_START,
+                sender=self.state.username,
+                group_id=target,
+                payload={**start_payload, "group_id": target},
+            )
+        else:
+            raise ValueError("chat_type must be private or group")
+
+        self.send_message(start)
+        offset = 0
+        with file_path.open("rb") as fh:
+            while True:
+                chunk = fh.read(FILE_CHUNK_BYTES)
+                if not chunk:
+                    break
+                self.send_message(
+                    make_message(
+                        MessageType.FILE_CHUNK,
+                        sender=self.state.username,
+                        payload={
+                            "file_id": file_id,
+                            "offset": offset,
+                            "data": base64.b64encode(chunk).decode("ascii"),
+                        },
+                    )
+                )
+                offset += len(chunk)
+        self.send_message(
+            make_message(
+                MessageType.FILE_END,
+                sender=self.state.username,
+                payload={"file_id": file_id, "sha256": digest},
+            )
+        )
+        print(f"file upload queued: {file_path.name} ({filesize} bytes)")
+        return file_id
+
+    def recall_message(self, message_id: str) -> str:
+        return self.send_message(
+            make_message(
+                MessageType.MESSAGE_RECALL,
+                sender=self.state.username,
+                payload={"message_id": message_id},
+            )
+        )
+
     def create_group(self, name: str) -> str:
         return self.send_message(
             make_message(
@@ -218,6 +294,12 @@ class ChatClient:
             item = self.history.add_protocol_message(message, current_user=self.state.username)
             if item is not None:
                 print(self.history.format_item(item, current_user=self.state.username))
+        elif message.type == MessageType.MESSAGE_RECALL:
+            item = self.history.recall_message(str(message.payload.get("message_id") or ""))
+            if item is not None:
+                print(self.history.format_item(item, current_user=self.state.username))
+            else:
+                print(f"message recalled: {message.payload.get('message_id')}")
         elif message.type == MessageType.HISTORY_RESPONSE:
             self._handle_history_response(message)
         elif message.type == MessageType.USER_STATUS:
@@ -225,6 +307,8 @@ class ChatClient:
         elif message.type in {MessageType.CREATE_GROUP, MessageType.JOIN_GROUP, MessageType.LEAVE_GROUP}:
             self._handle_group_response(message)
 
+        elif message.type in {MessageType.FILE_START, MessageType.FILE_CHUNK, MessageType.FILE_END}:
+            self._handle_file_transfer_response(message)
         elif message.type not in {MessageType.PRIVATE_MSG, MessageType.GROUP_MSG}:
             print(f"received {message.type.value}: {message.payload}")
 
@@ -336,6 +420,25 @@ class ChatClient:
         elif message.type == MessageType.LEAVE_GROUP:
             user = actor or message.receiver or "-"
             print(f"group left: {group_id} by {user}")
+
+    def _handle_file_transfer_response(self, message: ProtocolMessage) -> None:
+        file_id = message.payload.get("file_id", "-")
+        status = message.payload.get("status")
+        offset = message.payload.get("offset")
+        filesize = message.payload.get("filesize")
+        if message.type == MessageType.FILE_CHUNK:
+            print(f"file chunk ack: {file_id} {offset}/{filesize}")
+        elif message.type == MessageType.FILE_END:
+            print(f"file finished: {file_id} {status or ''}".rstrip())
+        else:
+            print(f"file started: {file_id}")
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
 
 def parse_args() -> argparse.Namespace:

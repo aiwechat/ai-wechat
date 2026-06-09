@@ -22,6 +22,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from uuid import uuid4
 
 from common.protocol import ProtocolError, ProtocolMessage
@@ -171,8 +172,12 @@ class WebChatServer:
             server_version = "AIWechatWeb/1.0"
 
             def do_GET(self) -> None:  # noqa: N802 - stdlib hook
-                if self.path.split("?", 1)[0] == "/ws":
+                parsed = urlparse(self.path)
+                if parsed.path == "/ws":
                     self._handle_websocket()
+                    return
+                if parsed.path.startswith("/files/"):
+                    self._serve_file_download(parsed.path, parsed.query)
                     return
                 self._serve_static()
 
@@ -195,6 +200,44 @@ class WebChatServer:
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
+
+            def _serve_file_download(self, path: str, query: str) -> None:
+                file_id = unquote(path.removeprefix("/files/")).strip("/")
+                token = parse_qs(query).get("token", [""])[0]
+                if not file_id or not token:
+                    self.send_error(HTTPStatus.FORBIDDEN, "missing file token")
+                    return
+                transfer = chat_server.db.get_file_transfer_by_token(file_id, token)
+                if transfer is None or transfer.get("status") != "finished":
+                    self.send_error(HTTPStatus.NOT_FOUND, "file not found")
+                    return
+                storage_path = transfer.get("storage_path")
+                if not storage_path:
+                    self.send_error(HTTPStatus.NOT_FOUND, "file not found")
+                    return
+                file_path = Path(str(storage_path))
+                try:
+                    file_path = file_path.resolve(strict=True)
+                except OSError:
+                    self.send_error(HTTPStatus.NOT_FOUND, "file not found")
+                    return
+                if not file_path.is_file():
+                    self.send_error(HTTPStatus.NOT_FOUND, "file not found")
+                    return
+                filename = str(transfer.get("filename") or transfer["file_id"])
+                mime = str(transfer.get("mime") or "application/octet-stream")
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(file_path.stat().st_size))
+                self.send_header("Content-Disposition", f'attachment; filename="{quote(filename)}"')
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                with file_path.open("rb") as fh:
+                    while True:
+                        chunk = fh.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
 
             def _handle_websocket(self) -> None:
                 key = self.headers.get("Sec-WebSocket-Key")

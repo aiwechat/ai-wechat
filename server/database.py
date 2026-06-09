@@ -116,6 +116,8 @@ class ChatDatabase:
                     content TEXT,
                     payload_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
+                    recalled_at TEXT,
+                    recalled_by TEXT,
                     FOREIGN KEY (sender) REFERENCES users(username),
                     FOREIGN KEY (receiver) REFERENCES users(username),
                     FOREIGN KEY (group_id) REFERENCES groups(group_id)
@@ -129,13 +131,20 @@ class ChatDatabase:
                     group_id TEXT,
                     filename TEXT NOT NULL,
                     filesize INTEGER NOT NULL,
+                    mime TEXT,
+                    sha256 TEXT,
+                    storage_path TEXT,
+                    download_token TEXT,
+                    message_id TEXT,
+                    error_reason TEXT,
                     status TEXT NOT NULL,
                     offset INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (sender) REFERENCES users(username),
                     FOREIGN KEY (receiver) REFERENCES users(username),
-                    FOREIGN KEY (group_id) REFERENCES groups(group_id)
+                    FOREIGN KEY (group_id) REFERENCES groups(group_id),
+                    FOREIGN KEY (message_id) REFERENCES messages(message_id)
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_messages_private
@@ -146,6 +155,33 @@ class ChatDatabase:
                     ON group_members(username);
                 """
             )
+            self._ensure_columns(
+                conn,
+                "messages",
+                {
+                    "recalled_at": "TEXT",
+                    "recalled_by": "TEXT",
+                },
+            )
+            self._ensure_columns(
+                conn,
+                "file_transfers",
+                {
+                    "mime": "TEXT",
+                    "sha256": "TEXT",
+                    "storage_path": "TEXT",
+                    "download_token": "TEXT",
+                    "message_id": "TEXT",
+                    "error_reason": "TEXT",
+                },
+            )
+
+    @staticmethod
+    def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, column_type in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
 
     def create_user(self, username: str, password: str, display_name: str | None = None) -> dict[str, Any]:
         salt, password_hash = _hash_password(password)
@@ -332,7 +368,7 @@ class ChatDatabase:
             rows = conn.execute(
                 """
                 SELECT message_id, message_type, sender, receiver, group_id, content,
-                       payload_json, created_at
+                       payload_json, created_at, recalled_at, recalled_by
                 FROM messages
                 WHERE group_id IS NULL
                   AND ((sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?))
@@ -348,7 +384,7 @@ class ChatDatabase:
             rows = conn.execute(
                 """
                 SELECT message_id, message_type, sender, receiver, group_id, content,
-                       payload_json, created_at
+                       payload_json, created_at, recalled_at, recalled_by
                 FROM messages
                 WHERE group_id = ?
                 ORDER BY created_at DESC, id DESC
@@ -367,21 +403,40 @@ class ChatDatabase:
         receiver: str | None = None,
         group_id: str | None = None,
         file_id: str | None = None,
+        mime: str | None = None,
+        sha256: str | None = None,
+        storage_path: str | None = None,
+        download_token: str | None = None,
     ) -> dict[str, Any]:
         if filesize < 0:
             raise ValueError("filesize must not be negative")
         file_id = file_id or uuid4().hex
+        download_token = download_token or secrets.token_urlsafe(24)
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO file_transfers (
                     file_id, sender, receiver, group_id, filename, filesize,
+                    mime, sha256, storage_path, download_token,
                     status, offset, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'started', 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', 0, ?, ?)
                 """,
-                (file_id, sender, receiver, group_id, filename, filesize, now, now),
+                (
+                    file_id,
+                    sender,
+                    receiver,
+                    group_id,
+                    filename,
+                    filesize,
+                    mime,
+                    sha256,
+                    storage_path,
+                    download_token,
+                    now,
+                    now,
+                ),
             )
         return {
             "file_id": file_id,
@@ -390,35 +445,64 @@ class ChatDatabase:
             "group_id": group_id,
             "filename": filename,
             "filesize": filesize,
+            "mime": mime,
+            "sha256": sha256,
+            "storage_path": storage_path,
+            "download_token": download_token,
+            "message_id": None,
+            "error_reason": None,
             "status": "started",
             "offset": 0,
             "created_at": now,
             "updated_at": now,
         }
 
-    def update_file_transfer(self, file_id: str, *, status: str, offset: int | None = None) -> dict[str, Any]:
+    def update_file_transfer(
+        self,
+        file_id: str,
+        *,
+        status: str,
+        offset: int | None = None,
+        sha256: str | None = None,
+        storage_path: str | None = None,
+        message_id: str | None = None,
+        error_reason: str | None = None,
+    ) -> dict[str, Any]:
         if status not in {"started", "transferring", "finished", "failed"}:
             raise ValueError(f"invalid file transfer status: {status}")
         now = utc_now()
         with self.connect() as conn:
-            if offset is None:
-                conn.execute(
-                    "UPDATE file_transfers SET status = ?, updated_at = ? WHERE file_id = ?",
-                    (status, now, file_id),
-                )
-            else:
-                conn.execute(
-                    """
-                    UPDATE file_transfers
-                    SET status = ?, offset = ?, updated_at = ?
-                    WHERE file_id = ?
-                    """,
-                    (status, offset, now, file_id),
-                )
+            assignments = ["status = ?", "updated_at = ?"]
+            values: list[Any] = [status, now]
+            if offset is not None:
+                assignments.append("offset = ?")
+                values.append(offset)
+            if sha256 is not None:
+                assignments.append("sha256 = ?")
+                values.append(sha256)
+            if storage_path is not None:
+                assignments.append("storage_path = ?")
+                values.append(storage_path)
+            if message_id is not None:
+                assignments.append("message_id = ?")
+                values.append(message_id)
+            if error_reason is not None:
+                assignments.append("error_reason = ?")
+                values.append(error_reason)
+            values.append(file_id)
+            conn.execute(
+                f"""
+                UPDATE file_transfers
+                SET {", ".join(assignments)}
+                WHERE file_id = ?
+                """,
+                values,
+            )
             row = conn.execute(
                 """
                 SELECT file_id, sender, receiver, group_id, filename, filesize,
-                       status, offset, created_at, updated_at
+                       mime, sha256, storage_path, download_token, message_id,
+                       error_reason, status, offset, created_at, updated_at
                 FROM file_transfers
                 WHERE file_id = ?
                 """,
@@ -428,10 +512,85 @@ class ChatDatabase:
             raise ValueError(f"file transfer not found: {file_id}")
         return dict(row)
 
+    def get_file_transfer(self, file_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT file_id, sender, receiver, group_id, filename, filesize,
+                       mime, sha256, storage_path, download_token, message_id,
+                       error_reason, status, offset, created_at, updated_at
+                FROM file_transfers
+                WHERE file_id = ?
+                """,
+                (file_id,),
+            ).fetchone()
+        return _row_to_dict(row)
+
+    def get_file_transfer_by_token(self, file_id: str, token: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT file_id, sender, receiver, group_id, filename, filesize,
+                       mime, sha256, storage_path, download_token, message_id,
+                       error_reason, status, offset, created_at, updated_at
+                FROM file_transfers
+                WHERE file_id = ? AND download_token = ?
+                """,
+                (file_id, token),
+            ).fetchone()
+        return _row_to_dict(row)
+
+    def get_message(self, message_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT message_id, message_type, sender, receiver, group_id, content,
+                       payload_json, created_at, recalled_at, recalled_by
+                FROM messages
+                WHERE message_id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+        return self._message_row(row) if row is not None else None
+
+    def recall_message(self, message_id: str, recalled_by: str) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE messages
+                SET recalled_at = ?, recalled_by = ?
+                WHERE message_id = ?
+                """,
+                (now, recalled_by, message_id),
+            )
+            row = conn.execute(
+                """
+                SELECT message_id, message_type, sender, receiver, group_id, content,
+                       payload_json, created_at, recalled_at, recalled_by
+                FROM messages
+                WHERE message_id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"message not found: {message_id}")
+        return self._message_row(row)
+
     @staticmethod
     def _message_row(row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
-        data["payload"] = json.loads(data.pop("payload_json") or "{}")
+        payload = json.loads(data.pop("payload_json") or "{}")
+        if data.get("recalled_at"):
+            data["content"] = ""
+            payload = {
+                "content": "",
+                "recalled": True,
+                "message_id": data.get("message_id"),
+                "recalled_at": data.get("recalled_at"),
+                "recalled_by": data.get("recalled_by"),
+            }
+        data["payload"] = payload
         return data
 
 

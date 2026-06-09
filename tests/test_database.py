@@ -79,6 +79,22 @@ class DatabaseTest(unittest.TestCase):
         self.assertEqual(updated["status"], "finished")
         self.assertEqual(updated["offset"], 1024)
 
+    def test_recalled_message_hides_content_in_history(self):
+        record = self.db.save_message(
+            message_type="private_msg",
+            sender="alice",
+            receiver="bob",
+            content="remove me",
+            payload={"content": "remove me"},
+        )
+
+        recalled = self.db.recall_message(record["message_id"], "alice")
+        history = self.db.get_private_history("alice", "bob")
+
+        self.assertEqual(recalled["payload"]["recalled"], True)
+        self.assertEqual(history[0]["content"], "")
+        self.assertEqual(history[0]["payload"]["recalled"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

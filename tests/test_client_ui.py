@@ -58,6 +58,12 @@ class FakeClient:
     def send_group(self, group_id: str, content: str) -> None:
         self.calls.append(("send_group", (group_id, content)))
 
+    def send_file(self, chat_type: str, target: str, path: str) -> None:
+        self.calls.append(("send_file", (chat_type, target, path)))
+
+    def recall_message(self, message_id: str) -> None:
+        self.calls.append(("recall_message", (message_id,)))
+
     def create_group(self, name: str) -> None:
         self.calls.append(("create_group", (name,)))
 
@@ -128,6 +134,23 @@ class ClientUiTest(unittest.TestCase):
                 ("leave_group", ("g1",)),
                 ("request_private_history", ("bob", 20)),
                 ("request_group_history", ("g1", 50)),
+            ],
+        )
+
+    def test_file_and_recall_commands_are_dispatched(self) -> None:
+        client = FakeClient()
+
+        with redirect_stdout(io.StringIO()):
+            handle_line(client, "/send-file private bob C:\\tmp\\a.txt")
+            handle_line(client, "/send-file group g1 C:\\tmp\\b.txt")
+            handle_line(client, "/recall msg-1")
+
+        self.assertEqual(
+            client.calls,
+            [
+                ("send_file", ("private", "bob", "C:\\tmp\\a.txt")),
+                ("send_file", ("group", "g1", "C:\\tmp\\b.txt")),
+                ("recall_message", ("msg-1",)),
             ],
         )
 

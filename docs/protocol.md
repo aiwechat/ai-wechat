@@ -112,9 +112,10 @@ def handle_message(message):
 | `heartbeat` | 心跳 | `{"seq":1}` |
 | `history_request` | 请求历史消息 | `{"chat_type":"private","peer":"bob","limit":50}` |
 | `history_response` | 返回历史消息 | `{"messages":[]}` |
-| `file_start` | 文件传输开始 | `{"filename":"test.pdf","filesize":1024,"file_id":"file-1"}` |
+| `file_start` | 文件传输开始 | `{"file_id":"file-1","filename":"test.pdf","filesize":1024,"mime":"application/pdf","sha256":"...","receiver":"bob"}` |
 | `file_chunk` | 文件分片 | `{"file_id":"file-1","offset":0,"data":"base64..."}` |
-| `file_end` | 文件传输结束 | `{"file_id":"file-1","status":"finished"}` |
+| `file_end` | 文件传输结束 | `{"file_id":"file-1","sha256":"..."}` |
+| `message_recall` | 撤回消息 | `{"message_id":"msg-1"}` |
 | `ai_request` | AI 请求 | `{"prompt":"explain TCP"}` |
 | `ai_response` | AI 回复 | `{"content":"..."}` |
 | `moderation_warning` | 内容审核警告 | `{"reason":"..."}` |
@@ -154,4 +155,6 @@ def handle_message(message):
 - 不要随意改名、删除 Envelope 顶层字段。
 - 新增消息类型后，需要同步更新 `common/protocol.py` 和本文档。
 - 文件传输使用 `file_start -> file_chunk -> file_end`，大文件不要直接放进单个 JSON。
+- 文件完成后通过普通 `private_msg` / `group_msg` 通知接收方，文件元数据放在 `payload.file` 中，例如 `{"file_id":"file-1","filename":"test.pdf","download_url":"/files/file-1?token=..."}`。
+- 图片、语音等小附件继续使用 `payload.attachment`；普通文件不要放进 `payload.attachment`，避免和 AI 图片分析逻辑冲突。
 - AI、审核、文件传输等功能应复用 `request_id` 追踪请求链路。

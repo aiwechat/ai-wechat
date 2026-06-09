@@ -35,5 +35,6 @@ Thumbs.db
 # Personal files
 Agent.md
 .claude
+docs/file_transfer_principles.md
 
 *.pdf

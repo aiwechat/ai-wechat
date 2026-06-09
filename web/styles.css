@@ -713,6 +713,58 @@ textarea:focus {
   color: var(--bubble-self-meta);
 }
 
+.recall-button {
+  display: block;
+  margin-top: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.self .recall-button {
+  color: var(--bubble-self-meta);
+}
+
+.message-text.recalled {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.file-message {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: var(--surface-2);
+}
+
+.file-message strong,
+.file-message small {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-message small {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.file-icon {
+  font-size: 20px;
+  color: var(--ink-soft);
+}
+
 .message-text + .attachment {
   margin-top: 9px;
 }

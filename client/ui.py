@@ -16,6 +16,9 @@ HELP_TEXT = """commands:
   /logout
   /msg <username> <content>
   /gmsg <group_id> <content>
+  /send-file private <username> <path>
+  /send-file group <group_id> <path>
+  /recall <message_id>
   /chat private <username>
   /chat group <group_id>
   /create-group <name>
@@ -84,6 +87,11 @@ def handle_line(client: "ChatClient", line: str) -> bool:
     elif command == "gmsg":
         group_id, content = _split_required(rest, 2, "usage: /gmsg <group_id> <content>")
         client.send_group(group_id, content)
+    elif command == "send-file":
+        handle_send_file(client, rest)
+    elif command == "recall":
+        message_id = _single_arg(rest, "usage: /recall <message_id>")
+        client.recall_message(message_id)
     elif command == "chat":
         handle_chat_target(client, rest)
     elif command == "create-group":
@@ -153,6 +161,16 @@ def handle_history(client: "ChatClient", rest: str) -> None:
         print("local recent:")
         for line in client.history.format_items(local_items, current_user=client.state.username):
             print(line)
+
+
+def handle_send_file(client: "ChatClient", rest: str) -> None:
+    parts = rest.strip().split(maxsplit=2)
+    if len(parts) != 3:
+        raise ValueError("usage: /send-file private <username> <path> | /send-file group <group_id> <path>")
+    chat_type, target, path = parts
+    if chat_type not in {"private", "group"}:
+        raise ValueError("send-file type must be private or group")
+    client.send_file(chat_type, target, path)
 
 
 def handle_status(client: "ChatClient") -> None:

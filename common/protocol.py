@@ -39,6 +39,7 @@ class MessageType(str, Enum):
     FILE_START = "file_start"
     FILE_CHUNK = "file_chunk"
     FILE_END = "file_end"
+    MESSAGE_RECALL = "message_recall"
     AI_REQUEST = "ai_request"
     AI_RESPONSE = "ai_response"
     MODERATION_WARNING = "moderation_warning"

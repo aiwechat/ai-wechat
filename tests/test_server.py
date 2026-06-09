@@ -6,6 +6,8 @@ real TCP sockets against it, and exchanges length-prefixed JSON frames.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import tempfile
 import time
 import unittest
@@ -186,6 +188,65 @@ class PrivateMessageTest(ServerTestCase):
             resp = alice.recv()
             self.assertEqual(resp.type, MessageType.ERROR)
             self.assertEqual(resp.payload["error_code"], ErrorCode.NOT_FOUND.value)
+
+    def test_private_file_transfer_is_forwarded_and_persisted(self) -> None:
+        with self.connect() as alice, self.connect() as bob:
+            self._register_and_login(alice, "alice")
+            self._register_and_login(bob, "bob")
+            content = b"hello file transfer"
+            digest = hashlib.sha256(content).hexdigest()
+
+            alice.send(
+                make_message(
+                    MessageType.FILE_START,
+                    receiver="bob",
+                    payload={
+                        "file_id": "file-test-1",
+                        "filename": "note.txt",
+                        "filesize": len(content),
+                        "mime": "text/plain",
+                        "sha256": digest,
+                        "receiver": "bob",
+                    },
+                )
+            )
+            alice.recv_of_type(MessageType.FILE_START)
+            alice.send(
+                make_message(
+                    MessageType.FILE_CHUNK,
+                    payload={
+                        "file_id": "file-test-1",
+                        "offset": 0,
+                        "data": base64.b64encode(content).decode("ascii"),
+                    },
+                )
+            )
+            alice.recv_of_type(MessageType.FILE_CHUNK)
+            alice.send(make_message(MessageType.FILE_END, payload={"file_id": "file-test-1", "sha256": digest}))
+
+            forward = bob.recv_of_type(MessageType.PRIVATE_MSG)
+            self.assertEqual(forward.payload["file"]["filename"], "note.txt")
+            self.assertIn("/files/file-test-1?token=", forward.payload["file"]["download_url"])
+            transfer = self.server.db.get_file_transfer("file-test-1")
+            self.assertIsNotNone(transfer)
+            self.assertEqual(transfer["status"], "finished")
+            self.assertEqual(Path(transfer["storage_path"]).read_bytes(), content)
+
+    def test_sender_can_recall_private_message(self) -> None:
+        with self.connect() as alice, self.connect() as bob:
+            self._register_and_login(alice, "alice")
+            self._register_and_login(bob, "bob")
+
+            alice.send_private("bob", "please recall")
+            forward = bob.recv_of_type(MessageType.PRIVATE_MSG)
+            message_id = forward.payload["message_id"]
+            alice.recv_of_type(MessageType.PRIVATE_MSG)
+            alice.send(make_message(MessageType.MESSAGE_RECALL, payload={"message_id": message_id}))
+
+            notice = bob.recv_of_type(MessageType.MESSAGE_RECALL)
+            self.assertEqual(notice.payload["message_id"], message_id)
+            history = self.server.db.get_private_history("alice", "bob")
+            self.assertEqual(history[-1]["payload"]["recalled"], True)
 
 
 class GroupChatTest(ServerTestCase):

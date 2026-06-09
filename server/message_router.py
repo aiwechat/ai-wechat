@@ -10,7 +10,11 @@ individual handlers stay short.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import logging
+from pathlib import Path
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
@@ -33,6 +37,8 @@ from server.user_manager import ClientSession, UserManager
 logger = logging.getLogger(__name__)
 MAX_ATTACHMENT_DATA_CHARS = 7_500_000
 ALLOWED_ATTACHMENT_KINDS = {"image", "audio"}
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
+MAX_FILE_CHUNK_BYTES = 64 * 1024
 
 
 def _require(payload: dict[str, Any], field: str, request_id: str | None = None) -> Any:
@@ -52,6 +58,18 @@ def _require_str(payload: dict[str, Any], field: str, request_id: str | None = N
         raise ProtocolError(
             ErrorCode.INVALID_FIELD,
             f"field {field} must be a string",
+            detail={"field": field},
+            request_id=request_id,
+        )
+    return value
+
+
+def _require_int(payload: dict[str, Any], field: str, request_id: str | None = None) -> int:
+    value = _require(payload, field, request_id=request_id)
+    if not isinstance(value, int):
+        raise ProtocolError(
+            ErrorCode.INVALID_FIELD,
+            f"field {field} must be an integer",
             detail={"field": field},
             request_id=request_id,
         )
@@ -159,10 +177,16 @@ class MessageRouter:
         moderation: ModerationService | None = None,
         ai_workers: int = 4,
         ai_cooldown_seconds: float = 3.0,
+        upload_dir: str | Path | None = None,
     ) -> None:
         self.db = db
         self.users = user_manager
         self.groups = group_manager
+        default_upload_dir = Path("data") / "uploads"
+        if db.db_path != Path(":memory:"):
+            default_upload_dir = db.db_path.parent / "uploads"
+        self.upload_dir = Path(upload_dir) if upload_dir is not None else default_upload_dir
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.ai_service = ai_service or AIService()
         self.moderation = moderation or ModerationService()
         self.ai_rate_limiter = AIRateLimiter(cooldown_seconds=ai_cooldown_seconds)
@@ -179,6 +203,10 @@ class MessageRouter:
             MessageType.JOIN_GROUP: self._handle_join_group,
             MessageType.LEAVE_GROUP: self._handle_leave_group,
             MessageType.HISTORY_REQUEST: self._handle_history_request,
+            MessageType.FILE_START: self._handle_file_start,
+            MessageType.FILE_CHUNK: self._handle_file_chunk,
+            MessageType.FILE_END: self._handle_file_end,
+            MessageType.MESSAGE_RECALL: self._handle_message_recall,
         }
 
     def shutdown(self) -> None:
@@ -416,6 +444,257 @@ class MessageRouter:
                 request_id=message.request_id,
             )
 
+    # --- file transfer ----------------------------------------------------
+
+    def _handle_file_start(self, session: ClientSession, message: ProtocolMessage) -> None:
+        self._require_auth(session, message)
+        filename = Path(_require_str(message.payload, "filename", message.request_id)).name
+        filesize = _require_int(message.payload, "filesize", message.request_id)
+        mime = _optional_str(message.payload, "mime") or "application/octet-stream"
+        expected_sha = _optional_str(message.payload, "sha256")
+        receiver = message.receiver or message.payload.get("receiver")
+        group_id = message.group_id or message.payload.get("group_id")
+
+        if not filename:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "filename must not be empty", request_id=message.request_id)
+        if filesize < 0 or filesize > MAX_FILE_SIZE_BYTES:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "filesize is out of range",
+                detail={"max_file_size": MAX_FILE_SIZE_BYTES},
+                request_id=message.request_id,
+            )
+        if not isinstance(mime, str) or not mime:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "mime must be a string", request_id=message.request_id)
+        if expected_sha and (len(expected_sha) != 64 or any(c not in "0123456789abcdefABCDEF" for c in expected_sha)):
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "sha256 must be a hex digest", request_id=message.request_id)
+
+        receiver_name: str | None = None
+        group_name: str | None = None
+        if receiver and group_id:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file transfer must target either receiver or group_id",
+                request_id=message.request_id,
+            )
+        if receiver:
+            if not isinstance(receiver, str):
+                raise ProtocolError(ErrorCode.INVALID_FIELD, "receiver must be a string", request_id=message.request_id)
+            self._validate_private_receiver(session, receiver, message.request_id)
+            receiver_name = receiver
+        elif group_id:
+            if not isinstance(group_id, str):
+                raise ProtocolError(ErrorCode.INVALID_FIELD, "group_id must be a string", request_id=message.request_id)
+            self._validate_group_member(session, group_id, message.request_id)
+            group_name = group_id
+        else:
+            raise ProtocolError(
+                ErrorCode.MISSING_FIELD,
+                "file transfer requires receiver or group_id",
+                detail={"required": ["receiver", "group_id"]},
+                request_id=message.request_id,
+            )
+
+        requested_file_id = message.payload.get("file_id")
+        if requested_file_id is not None:
+            if not isinstance(requested_file_id, str) or not requested_file_id.replace("-", "").replace("_", "").isalnum():
+                raise ProtocolError(ErrorCode.INVALID_FIELD, "file_id must be alphanumeric", request_id=message.request_id)
+            file_id = requested_file_id[:80]
+        else:
+            file_id = secrets.token_hex(16)
+        storage_path = self.upload_dir / file_id
+        transfer = self.db.create_file_transfer(
+            file_id=file_id,
+            sender=session.username or "",
+            receiver=receiver_name,
+            group_id=group_name,
+            filename=filename,
+            filesize=filesize,
+            mime=mime,
+            sha256=expected_sha or None,
+            storage_path=str(storage_path),
+        )
+        part_path = self._part_path(transfer)
+        if part_path.exists():
+            part_path.unlink()
+        part_path.touch()
+
+        session.send(
+            make_message(
+                MessageType.FILE_START,
+                sender="server",
+                receiver=session.username,
+                group_id=group_name,
+                payload=self._file_transfer_payload(transfer),
+                request_id=message.request_id,
+            )
+        )
+
+    def _handle_file_chunk(self, session: ClientSession, message: ProtocolMessage) -> None:
+        self._require_auth(session, message)
+        file_id = _require_str(message.payload, "file_id", message.request_id)
+        offset = _require_int(message.payload, "offset", message.request_id)
+        data = _require_str(message.payload, "data", message.request_id)
+        transfer = self._require_owned_transfer(session, file_id, message.request_id)
+        if transfer["status"] not in {"started", "transferring"}:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file transfer is not accepting chunks",
+                detail={"file_id": file_id, "status": transfer["status"]},
+                request_id=message.request_id,
+            )
+        if offset != transfer["offset"]:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file chunk offset does not match transfer offset",
+                detail={"expected": transfer["offset"], "actual": offset},
+                request_id=message.request_id,
+            )
+        try:
+            chunk = base64.b64decode(data.encode("ascii"), validate=True)
+        except (UnicodeEncodeError, binascii.Error) as exc:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "file chunk data must be base64", request_id=message.request_id) from exc
+        if not chunk:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "file chunk must not be empty", request_id=message.request_id)
+        if len(chunk) > MAX_FILE_CHUNK_BYTES:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file chunk is too large",
+                detail={"max_chunk_size": MAX_FILE_CHUNK_BYTES},
+                request_id=message.request_id,
+            )
+        new_offset = offset + len(chunk)
+        if new_offset > transfer["filesize"]:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "file chunk exceeds declared filesize", request_id=message.request_id)
+
+        part_path = self._part_path(transfer)
+        part_path.parent.mkdir(parents=True, exist_ok=True)
+        with part_path.open("ab") as fh:
+            fh.write(chunk)
+        transfer = self.db.update_file_transfer(file_id, status="transferring", offset=new_offset)
+        session.send(
+            make_message(
+                MessageType.FILE_CHUNK,
+                sender="server",
+                receiver=session.username,
+                group_id=transfer.get("group_id"),
+                payload={"file_id": file_id, "offset": new_offset, "filesize": transfer["filesize"]},
+                request_id=message.request_id,
+            )
+        )
+
+    def _handle_file_end(self, session: ClientSession, message: ProtocolMessage) -> None:
+        self._require_auth(session, message)
+        file_id = _require_str(message.payload, "file_id", message.request_id)
+        provided_sha = _optional_str(message.payload, "sha256")
+        transfer = self._require_owned_transfer(session, file_id, message.request_id)
+        if transfer["status"] not in {"started", "transferring"}:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file transfer cannot be finished",
+                detail={"file_id": file_id, "status": transfer["status"]},
+                request_id=message.request_id,
+            )
+        if transfer["offset"] != transfer["filesize"]:
+            raise ProtocolError(
+                ErrorCode.INVALID_FIELD,
+                "file transfer is incomplete",
+                detail={"offset": transfer["offset"], "filesize": transfer["filesize"]},
+                request_id=message.request_id,
+            )
+
+        part_path = self._part_path(transfer)
+        final_path = Path(str(transfer["storage_path"]))
+        try:
+            digest = self._sha256_file(part_path)
+            expected_sha = provided_sha or transfer.get("sha256")
+            if expected_sha and digest.lower() != str(expected_sha).lower():
+                self.db.update_file_transfer(file_id, status="failed", error_reason="sha256 mismatch")
+                raise ProtocolError(ErrorCode.INVALID_FIELD, "file sha256 mismatch", request_id=message.request_id)
+            part_path.replace(final_path)
+        except ProtocolError:
+            raise
+        except OSError as exc:
+            self.db.update_file_transfer(file_id, status="failed", error_reason=str(exc))
+            raise ProtocolError(ErrorCode.SERVER_ERROR, "could not finalize file transfer", request_id=message.request_id) from exc
+
+        transfer = self.db.update_file_transfer(file_id, status="finished", sha256=digest, storage_path=str(final_path))
+        file_payload = self._file_message_payload(transfer)
+        record = self.db.save_message(
+            message_type=MessageType.GROUP_MSG.value if transfer.get("group_id") else MessageType.PRIVATE_MSG.value,
+            sender=session.username,
+            receiver=transfer.get("receiver"),
+            group_id=transfer.get("group_id"),
+            content="",
+            payload={"content": "", "file": file_payload},
+        )
+        transfer = self.db.update_file_transfer(file_id, status="finished", message_id=record["message_id"])
+        payload = {"content": "", "file": file_payload, "message_id": record["message_id"], "created_at": record["created_at"]}
+        self._deliver_chat_payload(
+            session,
+            payload,
+            request_id=message.request_id,
+            receiver=transfer.get("receiver"),
+            group_id=transfer.get("group_id"),
+        )
+        session.send(
+            make_message(
+                MessageType.FILE_END,
+                sender="server",
+                receiver=session.username,
+                group_id=transfer.get("group_id"),
+                payload={**self._file_transfer_payload(transfer), "sha256": digest},
+                request_id=message.request_id,
+            )
+        )
+
+    def _handle_message_recall(self, session: ClientSession, message: ProtocolMessage) -> None:
+        self._require_auth(session, message)
+        message_id = _require_str(message.payload, "message_id", message.request_id)
+        record = self.db.get_message(message_id)
+        if record is None:
+            raise ProtocolError(
+                ErrorCode.NOT_FOUND,
+                f"message not found: {message_id}",
+                detail={"message_id": message_id},
+                request_id=message.request_id,
+            )
+        if record.get("sender") != session.username:
+            raise ProtocolError(
+                ErrorCode.AUTH_FAILED,
+                "only the sender can recall a message",
+                detail={"message_id": message_id},
+                request_id=message.request_id,
+            )
+        recalled = self.db.recall_message(message_id, session.username or "")
+        payload = {
+            "message_id": message_id,
+            "recalled": True,
+            "recalled_at": recalled.get("recalled_at"),
+            "recalled_by": session.username,
+        }
+        notification = make_message(
+            MessageType.MESSAGE_RECALL,
+            sender="server",
+            receiver=record.get("receiver"),
+            group_id=record.get("group_id"),
+            payload=payload,
+            request_id=message.request_id,
+        )
+        if record.get("group_id"):
+            for member in self.groups.member_usernames(str(record["group_id"])):
+                target = self.users.get_session(member)
+                if target is not None:
+                    target.send(notification)
+        else:
+            recipients = {record.get("sender"), record.get("receiver")}
+            for username in recipients:
+                if not username:
+                    continue
+                target = self.users.get_session(str(username))
+                if target is not None:
+                    target.send(notification)
+
     # --- group handlers --------------------------------------------------
 
     def _handle_create_group(self, session: ClientSession, message: ProtocolMessage) -> None:
@@ -550,6 +829,131 @@ class MessageRouter:
                 "login required",
                 request_id=message.request_id,
             )
+
+    def _validate_private_receiver(self, session: ClientSession, receiver: str, request_id: str) -> None:
+        if receiver == session.username:
+            raise ProtocolError(ErrorCode.INVALID_FIELD, "cannot send to yourself", request_id=request_id)
+        if self.db.get_user(receiver) is None:
+            raise ProtocolError(
+                ErrorCode.NOT_FOUND,
+                f"user not found: {receiver}",
+                detail={"receiver": receiver},
+                request_id=request_id,
+            )
+
+    def _validate_group_member(self, session: ClientSession, group_id: str, request_id: str) -> list[str]:
+        members = self.groups.member_usernames(group_id)
+        if not members:
+            raise ProtocolError(
+                ErrorCode.NOT_FOUND,
+                f"group not found: {group_id}",
+                detail={"group_id": group_id},
+                request_id=request_id,
+            )
+        if session.username not in members:
+            raise ProtocolError(
+                ErrorCode.AUTH_FAILED,
+                f"{session.username} is not a member of {group_id}",
+                detail={"group_id": group_id},
+                request_id=request_id,
+            )
+        return members
+
+    def _require_owned_transfer(self, session: ClientSession, file_id: str, request_id: str) -> dict[str, Any]:
+        transfer = self.db.get_file_transfer(file_id)
+        if transfer is None:
+            raise ProtocolError(
+                ErrorCode.NOT_FOUND,
+                f"file transfer not found: {file_id}",
+                detail={"file_id": file_id},
+                request_id=request_id,
+            )
+        if transfer.get("sender") != session.username:
+            raise ProtocolError(
+                ErrorCode.AUTH_FAILED,
+                "only the sender can update this file transfer",
+                detail={"file_id": file_id},
+                request_id=request_id,
+            )
+        return transfer
+
+    def _part_path(self, transfer: dict[str, Any]) -> Path:
+        return Path(str(transfer["storage_path"]) + ".part")
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _file_transfer_payload(self, transfer: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "file_id": transfer["file_id"],
+            "filename": transfer["filename"],
+            "filesize": transfer["filesize"],
+            "mime": transfer.get("mime") or "application/octet-stream",
+            "status": transfer["status"],
+            "offset": transfer["offset"],
+        }
+
+    def _file_message_payload(self, transfer: dict[str, Any]) -> dict[str, Any]:
+        file_id = str(transfer["file_id"])
+        token = str(transfer["download_token"])
+        return {
+            "file_id": file_id,
+            "filename": transfer["filename"],
+            "filesize": transfer["filesize"],
+            "mime": transfer.get("mime") or "application/octet-stream",
+            "sha256": transfer.get("sha256"),
+            "download_url": f"/files/{file_id}?token={token}",
+        }
+
+    def _deliver_chat_payload(
+        self,
+        session: ClientSession,
+        payload: dict[str, Any],
+        *,
+        request_id: str,
+        receiver: str | None = None,
+        group_id: str | None = None,
+    ) -> None:
+        if group_id:
+            forward = make_message(
+                MessageType.GROUP_MSG,
+                sender=session.username,
+                group_id=group_id,
+                payload=payload,
+                request_id=request_id,
+            )
+            for member in self.groups.member_usernames(group_id):
+                target = self.users.get_session(member)
+                if target is not None:
+                    target.send(forward)
+            return
+
+        forward = make_message(
+            MessageType.PRIVATE_MSG,
+            sender=session.username,
+            receiver=receiver,
+            payload=payload,
+            request_id=request_id,
+        )
+        delivered = False
+        if receiver:
+            target = self.users.get_session(receiver)
+            if target is not None:
+                delivered = target.send(forward)
+        session.send(
+            make_message(
+                MessageType.PRIVATE_MSG,
+                sender=session.username,
+                receiver=receiver,
+                payload={**payload, "delivered": delivered},
+                request_id=request_id,
+                meta={"echo": True},
+            )
+        )
 
     def _broadcast_status(
         self,

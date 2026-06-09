@@ -20,8 +20,11 @@ const state = {
   mediaRecorder: null,
   recordedChunks: [],
   pendingAttachment: null,
+  pendingUploads: new Map(),
 };
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const FILE_CHUNK_BYTES = 64 * 1024;
 
 const $ = (id) => document.getElementById(id);
 
@@ -63,12 +66,24 @@ const els = {
   aiHintBtn: $("aiHintBtn"),
   imageBtn: $("imageBtn"),
   audioFileBtn: $("audioFileBtn"),
+  fileBtn: $("fileBtn"),
   recordBtn: $("recordBtn"),
   imageInput: $("imageInput"),
   audioInput: $("audioInput"),
+  fileInput: $("fileInput"),
   backBtn: $("backBtn"),
   toast: $("toast"),
 };
+
+if (!els.fileBtn && els.recordBtn?.parentElement) {
+  els.fileBtn = document.createElement("button");
+  els.fileBtn.id = "fileBtn";
+  els.fileBtn.className = "icon-button";
+  els.fileBtn.title = "选择文件";
+  els.fileBtn.setAttribute("aria-label", "选择文件");
+  els.fileBtn.textContent = "↥";
+  els.recordBtn.parentElement.insertBefore(els.fileBtn, els.recordBtn);
+}
 
 function requestId() {
   return crypto.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random()}`;
@@ -202,6 +217,14 @@ function handleIncoming(msg) {
     case "history_response":
       handleHistory(msg);
       break;
+    case "file_start":
+    case "file_chunk":
+    case "file_end":
+      handleFileTransferStatus(msg);
+      break;
+    case "message_recall":
+      handleRecall(msg);
+      break;
     case "user_status":
       handleStatus(msg);
       break;
@@ -313,10 +336,41 @@ function historyRowToMessage(row) {
     sender: row.sender,
     content: row.content || row.payload?.content || "",
     attachment: row.payload?.attachment || null,
+    file: row.payload?.file || null,
+    recalled: Boolean(row.recalled_at || row.payload?.recalled),
+    recalledAt: row.recalled_at || row.payload?.recalled_at,
     timestamp: row.created_at,
     system: false,
     ai: row.message_type === "ai_response",
   };
+}
+
+function handleFileTransferStatus(msg) {
+  const fileId = msg.payload.file_id;
+  if (!fileId) return;
+  const upload = state.pendingUploads.get(fileId);
+  if (msg.type === "file_chunk" && upload) {
+    upload.offset = msg.payload.offset || upload.offset;
+    showToast(`上传中 ${upload.name}: ${formatBytes(upload.offset)} / ${formatBytes(upload.size)}`);
+  } else if (msg.type === "file_end") {
+    state.pendingUploads.delete(fileId);
+    showToast("文件已发送");
+  }
+}
+
+function handleRecall(msg) {
+  const messageId = msg.payload.message_id;
+  if (!messageId) return;
+  for (const conv of state.conversations.values()) {
+    const item = conv.messages.find((candidate) => candidate.id === messageId);
+    if (!item) continue;
+    item.content = "";
+    item.attachment = null;
+    item.file = null;
+    item.recalled = true;
+    item.recalledAt = msg.payload.recalled_at;
+    return;
+  }
 }
 
 function resolvePrivateTarget(msg) {
@@ -350,9 +404,12 @@ function addChatMessage(key, msg) {
   const conv = type === "private" ? addFriend(target) : ensureConversation(key, type, target);
   if (!conv) return;
   conv.messages.push({
+    id: msg.payload.message_id || null,
     sender: msg.sender,
     content: msg.payload.content || "",
     attachment: msg.payload.attachment || null,
+    file: msg.payload.file || null,
+    recalled: Boolean(msg.payload.recalled),
     timestamp: msg.payload.created_at || msg.timestamp,
     system: false,
     ai: Boolean(msg.payload.ai || msg.meta?.ai_response),
@@ -595,6 +652,13 @@ function renderMessageItem(item) {
   bubble.innerHTML = item.system
     ? escapeHtml(item.content)
     : `<div class="bubble-meta">${escapeHtml(name)} · ${formatTime(item.timestamp)}</div>${renderMessageBody(item)}`;
+  if (!item.system && mine && item.id && !item.recalled) {
+    const recallBtn = document.createElement("button");
+    recallBtn.className = "recall-button";
+    recallBtn.textContent = "撤回";
+    recallBtn.addEventListener("click", () => recallMessage(item.id));
+    bubble.appendChild(recallBtn);
+  }
   row.appendChild(bubble);
   els.messageList.appendChild(row);
 }
@@ -681,6 +745,66 @@ function sendChatPayload(payload) {
   }
 }
 
+async function sendSelectedFile(file) {
+  const conv = state.current;
+  if (!file) return;
+  if (!conv) {
+    showToast("请先选择会话");
+    return;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    showToast("文件不能超过 50MB");
+    return;
+  }
+  const fileId = requestId();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const sha256 = await sha256Hex(bytes);
+  const basePayload = {
+    file_id: fileId,
+    filename: file.name || "file",
+    filesize: file.size,
+    mime: file.type || "application/octet-stream",
+  };
+  if (sha256) basePayload.sha256 = sha256;
+  state.pendingUploads.set(fileId, { name: basePayload.filename, size: file.size, offset: 0 });
+  if (conv.type === "group") {
+    send(message("file_start", { ...basePayload, group_id: conv.target }, { group_id: conv.target }));
+  } else {
+    send(message("file_start", { ...basePayload, receiver: conv.target }, { receiver: conv.target }));
+  }
+  for (let offset = 0; offset < bytes.length; offset += FILE_CHUNK_BYTES) {
+    const chunk = bytes.slice(offset, offset + FILE_CHUNK_BYTES);
+    send(message("file_chunk", {
+      file_id: fileId,
+      offset,
+      data: bytesToBase64(chunk),
+    }));
+  }
+  const endPayload = { file_id: fileId };
+  if (sha256) endPayload.sha256 = sha256;
+  send(message("file_end", endPayload));
+  showToast(`文件上传中：${file.name}`);
+}
+
+function recallMessage(messageId) {
+  if (!messageId) return;
+  send(message("message_recall", { message_id: messageId }));
+}
+
+async function sha256Hex(bytes) {
+  if (!crypto.subtle) return "";
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.slice(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 function requestHistory() {
   const conv = state.current;
   if (!conv) return;
@@ -705,11 +829,17 @@ function showToast(text) {
 
 function renderMessageBody(item) {
   const parts = [];
+  if (item.recalled) {
+    return `<div class="message-text recalled">消息已撤回</div>`;
+  }
   if (item.content) {
     parts.push(item.ai ? renderMarkdown(item.content) : `<div class="message-text">${escapeHtml(item.content)}</div>`);
   }
   if (item.attachment) {
     parts.push(renderAttachment(item.attachment));
+  }
+  if (item.file) {
+    parts.push(renderFileMessage(item.file));
   }
   return parts.join("");
 }
@@ -720,6 +850,16 @@ function renderMarkdown(content) {
   }
   const html = window.marked.parse(String(content), { breaks: true, gfm: true });
   return `<div class="message-markdown">${window.DOMPurify.sanitize(html)}</div>`;
+}
+
+function renderFileMessage(file) {
+  const name = escapeHtml(file.filename || file.name || file.file_id || "file");
+  const size = Number.isFinite(file.filesize) ? formatBytes(file.filesize) : "";
+  const href = escapeHtml(file.download_url || "#");
+  return `<a class="file-message" href="${href}" download>
+    <span class="file-icon">↧</span>
+    <span><strong>${name}</strong><small>${escapeHtml(size)}</small></span>
+  </a>`;
 }
 
 function renderAttachment(attachment) {
@@ -985,6 +1125,7 @@ els.aiHintBtn.addEventListener("click", () => {
 });
 els.imageBtn.addEventListener("click", () => els.imageInput.click());
 els.audioFileBtn.addEventListener("click", () => els.audioInput.click());
+els.fileBtn?.addEventListener("click", () => els.fileInput.click());
 els.recordBtn.addEventListener("click", toggleRecording);
 els.imageInput.addEventListener("change", () => {
   stageFileAttachment(els.imageInput.files?.[0], "image");
@@ -993,6 +1134,10 @@ els.imageInput.addEventListener("change", () => {
 els.audioInput.addEventListener("change", () => {
   stageFileAttachment(els.audioInput.files?.[0], "audio");
   els.audioInput.value = "";
+});
+els.fileInput.addEventListener("change", () => {
+  sendSelectedFile(els.fileInput.files?.[0]);
+  els.fileInput.value = "";
 });
 els.messageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {

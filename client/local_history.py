@@ -24,6 +24,8 @@ class LocalHistoryItem:
     content: str
     message_id: str | None = None
     timestamp: str | None = None
+    file: dict[str, Any] | None = None
+    recalled: bool = False
     raw: ProtocolMessage | dict[str, Any] | None = None
 
 
@@ -50,6 +52,8 @@ class LocalHistory:
                 content=self._content_from_payload(message.payload),
                 message_id=self._message_id_from_payload(message.payload),
                 timestamp=self._timestamp_from_payload(message.payload, message.timestamp),
+                file=self._file_from_payload(message.payload),
+                recalled=bool(message.payload.get("recalled")),
                 raw=message,
             )
             if not self._append(("private", target), item):
@@ -65,6 +69,8 @@ class LocalHistory:
                 content=self._content_from_payload(message.payload),
                 message_id=self._message_id_from_payload(message.payload),
                 timestamp=self._timestamp_from_payload(message.payload, message.timestamp),
+                file=self._file_from_payload(message.payload),
+                recalled=bool(message.payload.get("recalled")),
                 raw=message,
             )
             if not self._append(("group", target), item):
@@ -126,12 +132,25 @@ class LocalHistory:
     def recent_group(self, group_id: str, limit: int | None = None) -> list[LocalHistoryItem]:
         return self._recent(("group", group_id), limit)
 
+    def recall_message(self, message_id: str) -> LocalHistoryItem | None:
+        if not message_id:
+            return None
+        for items in self._items.values():
+            for item in items:
+                if item.message_id == message_id:
+                    item.content = "message recalled"
+                    item.file = None
+                    item.recalled = True
+                    return item
+        return None
+
     def format_item(self, item: LocalHistoryItem, *, current_user: str | None = None) -> str:
         sender = "me" if current_user and item.sender == current_user else item.sender or "unknown"
         prefix = f"[{item.timestamp}] " if item.timestamp else ""
+        msg_id = f" #{item.message_id[:8]}" if item.message_id else ""
         if item.chat_type == "group":
-            return f"{prefix}[group:{item.target}] {sender}: {item.content}"
-        return f"{prefix}[private:{item.target}] {sender}: {item.content}"
+            return f"{prefix}[group:{item.target}] {sender}{msg_id}: {item.content}"
+        return f"{prefix}[private:{item.target}] {sender}{msg_id}: {item.content}"
 
     def format_items(
         self,
@@ -187,6 +206,8 @@ class LocalHistory:
         if not target:
             return None
 
+        payload = row.get("payload")
+        recalled = bool(row.get("recalled_at") or (payload.get("recalled") if isinstance(payload, dict) else False))
         return LocalHistoryItem(
             chat_type=resolved_type,
             target=target,
@@ -194,6 +215,8 @@ class LocalHistory:
             content=self._content_from_history_row(row),
             message_id=str(row["message_id"]) if row.get("message_id") is not None else None,
             timestamp=row.get("created_at") or row.get("timestamp"),
+            file=self._file_from_history_row(row),
+            recalled=recalled,
             raw=row,
         )
 
@@ -206,8 +229,25 @@ class LocalHistory:
         return ""
 
     def _content_from_payload(self, payload: dict[str, Any]) -> str:
+        if payload.get("recalled"):
+            return "message recalled"
+        file_info = payload.get("file")
+        if isinstance(file_info, dict):
+            name = file_info.get("filename") or file_info.get("name") or file_info.get("file_id") or "file"
+            size = file_info.get("filesize") or file_info.get("size")
+            return f"[file] {name} ({size} bytes)" if isinstance(size, int) else f"[file] {name}"
         content = payload.get("content", "")
         return str(content)
+
+    def _file_from_payload(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        file_info = payload.get("file")
+        return file_info if isinstance(file_info, dict) else None
+
+    def _file_from_history_row(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        payload = row.get("payload")
+        if isinstance(payload, dict):
+            return self._file_from_payload(payload)
+        return None
 
     def _message_id_from_payload(self, payload: dict[str, Any]) -> str | None:
         message_id = payload.get("message_id")
