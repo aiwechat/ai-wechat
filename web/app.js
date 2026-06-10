@@ -516,6 +516,9 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", state.theme);
   localStorage.setItem("aiwechat.theme", state.theme);
   if (els.themeLabel) els.themeLabel.textContent = state.theme === "dark" ? "夜间" : "日间";
+  // Keep the PWA title-bar / status-bar color in sync with the theme.
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeColorMeta) themeColorMeta.setAttribute("content", state.theme === "dark" ? "#161618" : "#ffffff");
 }
 
 function toggleTheme() {
@@ -659,8 +662,35 @@ function renderMessageItem(item) {
     recallBtn.addEventListener("click", () => recallMessage(item.id));
     bubble.appendChild(recallBtn);
   }
+  if (!item.system && !mine) {
+    row.appendChild(buildMessageAvatar(item, name));
+  }
   row.appendChild(bubble);
   els.messageList.appendChild(row);
+}
+
+function buildMessageAvatar(item, name) {
+  const avatar = document.createElement("span");
+  avatar.setAttribute("aria-hidden", "true");
+  if (item.ai) {
+    avatar.className = "msg-avatar ai";
+    avatar.textContent = "AI";
+  } else {
+    avatar.className = "msg-avatar";
+    avatar.textContent = name.slice(0, 1).toUpperCase();
+    avatar.style.background = avatarColor(name);
+  }
+  return avatar;
+}
+
+function avatarColor(name) {
+  let hash = 0;
+  for (const char of String(name)) {
+    hash = (hash * 31 + char.codePointAt(0)) % 997;
+  }
+  // Monochrome palette: vary only the gray lightness per user.
+  const light = 28 + (hash % 27);
+  return `linear-gradient(135deg, hsl(0, 0%, ${light + 8}%), hsl(0, 0%, ${light}%))`;
 }
 
 function titleFor(conv) {
@@ -1168,3 +1198,11 @@ applyTheme(state.theme);
 els.usernameInput.value = state.username;
 connect();
 render();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.debug("service worker registration failed", error);
+    });
+  });
+}
