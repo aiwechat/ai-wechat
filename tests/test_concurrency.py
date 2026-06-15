@@ -15,7 +15,7 @@ from pathlib import Path
 
 from common.protocol import MessageType
 from server.server import ChatServer
-from tests._server_helpers import TestClient, free_port
+from tests._server_helpers import AllowAllModeration, TestClient, free_port
 
 
 NUM_CLIENTS = 60  # > 50 to satisfy the spec with margin
@@ -34,6 +34,7 @@ class ConcurrentClientTest(unittest.TestCase):
             heartbeat_timeout=120.0,
             heartbeat_interval=10.0,
             recv_timeout=15.0,
+            moderation=AllowAllModeration(),
         )
         self.port = self.server.start()
 

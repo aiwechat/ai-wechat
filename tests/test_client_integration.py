@@ -11,7 +11,7 @@ from pathlib import Path
 
 from client.client import ChatClient
 from server.server import ChatServer
-from tests._server_helpers import free_port
+from tests._server_helpers import AllowAllModeration, free_port
 
 
 def wait_until(predicate, *, timeout: float = 5.0, interval: float = 0.05) -> None:
@@ -33,6 +33,7 @@ class ClientIntegrationTest(unittest.TestCase):
             heartbeat_timeout=5.0,
             heartbeat_interval=0.5,
             recv_timeout=1.0,
+            moderation=AllowAllModeration(),
         )
         self.port = self.server.start()
 

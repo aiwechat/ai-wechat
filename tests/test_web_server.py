@@ -10,6 +10,7 @@ from urllib.request import urlopen
 
 from common.protocol import MessageType, make_message
 from server.web_server import WebChatServer, encode_client_ws_text, read_ws_frame, read_ws_message
+from tests._server_helpers import AllowAllModeration
 
 
 class WebServerTest(unittest.TestCase):
@@ -21,6 +22,7 @@ class WebServerTest(unittest.TestCase):
             db_path=Path(self.tmpdir.name) / "chat.db",
             heartbeat_timeout=10.0,
             heartbeat_interval=1.0,
+            moderation=AllowAllModeration(),
         )
         self.port = self.server.start()
 

@@ -16,7 +16,7 @@ from typing import Any
 
 from common.protocol import ErrorCode, MessageType, make_message
 from server.server import ChatServer
-from tests._server_helpers import TestClient, assert_no_error, free_port
+from tests._server_helpers import AllowAllModeration, KeywordRecallModeration, TestClient, assert_no_error, free_port
 
 
 class FakeAIService:
@@ -56,6 +56,7 @@ class ServerTestCase(unittest.TestCase):
             heartbeat_timeout=2.0,
             heartbeat_interval=0.5,
             recv_timeout=1.0,
+            moderation=AllowAllModeration(),
         )
         self.port = self.server.start()
 
@@ -318,7 +319,8 @@ class GroupChatTest(ServerTestCase):
             self.assertEqual(resp.type, MessageType.ERROR)
             self.assertEqual(resp.payload["error_code"], ErrorCode.AUTH_FAILED.value)
 
-    def test_bad_group_message_is_blocked_with_warning(self) -> None:
+    def test_bad_group_message_is_sent_then_force_recalled_with_warning(self) -> None:
+        self.server.router.moderation = KeywordRecallModeration("违规词1")
         self._setup_users("alice", "bob")
         with self.connect() as alice, self.connect() as bob:
             alice.login("alice", "alice-pw")
@@ -341,10 +343,18 @@ class GroupChatTest(ServerTestCase):
                 )
             )
 
+            forward = bob.recv_of_type(MessageType.GROUP_MSG)
+            self.assertEqual(forward.payload["content"], "这里包含违规词1")
+            message_id = forward.payload["message_id"]
             warning = alice.recv_of_type(MessageType.MODERATION_WARNING)
-            self.assertEqual(warning.payload["action"], "block")
+            self.assertEqual(warning.payload["action"], "recall")
+            self.assertEqual(warning.payload["message_id"], message_id)
             self.assertIn("违规词1", warning.payload["matched_words"])
-            self.assertEqual(self.server.db.get_group_history("mod-g1"), [])
+            recall = bob.recv_of_type(MessageType.MESSAGE_RECALL)
+            self.assertEqual(recall.payload["message_id"], message_id)
+            self.assertTrue(recall.payload["forced"])
+            history = self.server.db.get_group_history("mod-g1")
+            self.assertEqual(history[-1]["payload"]["recalled"], True)
 
     def test_group_image_attachment_is_forwarded_and_persisted(self) -> None:
         self._setup_users("alice", "bob")
@@ -397,6 +407,7 @@ class AIFeatureTest(ServerTestCase):
             recv_timeout=1.0,
             ai_service=self.ai_service,
             ai_cooldown_seconds=0.0,
+            moderation=AllowAllModeration(),
         )
         self.port = self.server.start()
 

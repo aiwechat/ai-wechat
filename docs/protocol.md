@@ -118,7 +118,7 @@ def handle_message(message):
 | `message_recall` | 撤回消息 | `{"message_id":"msg-1"}` |
 | `ai_request` | AI 请求 | `{"prompt":"explain TCP"}` |
 | `ai_response` | AI 回复 | `{"content":"..."}` |
-| `moderation_warning` | 内容审核警告 | `{"reason":"..."}` |
+| `moderation_warning` | 内容审核警告 | `{"action":"recall","message_id":"msg-1","reason":"..."}` |
 | `error` | 错误响应 | `{"error_code":"auth_failed","message":"登录失败","detail":{}}` |
 
 ## 错误格式
@@ -158,3 +158,4 @@ def handle_message(message):
 - 文件完成后通过普通 `private_msg` / `group_msg` 通知接收方，文件元数据放在 `payload.file` 中，例如 `{"file_id":"file-1","filename":"test.pdf","download_url":"/files/file-1?token=..."}`。
 - 图片、语音等小附件继续使用 `payload.attachment`；普通文件不要放进 `payload.attachment`，避免和 AI 图片分析逻辑冲突。
 - AI、审核、文件传输等功能应复用 `request_id` 追踪请求链路。
+- 安全审查采用“先发送、后审查”流程；审查失败时服务端先向发送者发送 `moderation_warning`，再向相关会话广播 `message_recall`。强制撤回通知会在 payload 中带上 `forced: true`、`recalled_by: "server:moderation"` 和 `reason`。

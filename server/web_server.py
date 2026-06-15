@@ -26,7 +26,9 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from uuid import uuid4
 
 from common.protocol import ProtocolError, ProtocolMessage
+from server.ai_service import AIResponder
 from server.database import DEFAULT_DB_PATH
+from server.moderation import ModerationService
 from server.relay import ChatRelayService
 
 
@@ -104,6 +106,10 @@ class WebChatServer:
         db_path: str | Path = DEFAULT_DB_PATH,
         heartbeat_timeout: float = 60.0,
         heartbeat_interval: float = 15.0,
+        ai_service: AIResponder | None = None,
+        moderation: ModerationService | None = None,
+        ai_workers: int = 4,
+        ai_cooldown_seconds: float = 3.0,
         relay: ChatRelayService | None = None,
     ) -> None:
         self.host = host
@@ -112,6 +118,10 @@ class WebChatServer:
             db_path=db_path,
             heartbeat_timeout=heartbeat_timeout,
             heartbeat_interval=heartbeat_interval,
+            ai_service=ai_service,
+            moderation=moderation,
+            ai_workers=ai_workers,
+            ai_cooldown_seconds=ai_cooldown_seconds,
         )
         self._owns_relay = relay is None
         self.db = self.relay.db

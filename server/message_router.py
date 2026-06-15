@@ -191,6 +191,7 @@ class MessageRouter:
         self.moderation = moderation or ModerationService()
         self.ai_rate_limiter = AIRateLimiter(cooldown_seconds=ai_cooldown_seconds)
         self._ai_executor = ThreadPoolExecutor(max_workers=ai_workers, thread_name_prefix="AIReply")
+        self._moderation_executor = ThreadPoolExecutor(max_workers=ai_workers, thread_name_prefix="Moderation")
         self._ensure_assistant_user()
         self._handlers: dict[MessageType, Callable[[ClientSession, ProtocolMessage], None]] = {
             MessageType.REGISTER: self._handle_register,
@@ -211,6 +212,7 @@ class MessageRouter:
 
     def shutdown(self) -> None:
         self._ai_executor.shutdown(wait=False, cancel_futures=True)
+        self._moderation_executor.shutdown(wait=False, cancel_futures=True)
 
     # --- public entrypoint -----------------------------------------------
 
@@ -325,8 +327,6 @@ class MessageRouter:
         self._require_auth(session, message)
         receiver = message.receiver or _require_str(message.payload, "receiver", message.request_id)
         content, attachment = _message_body(message.payload, message.request_id)
-        if content and not self._moderate_or_warn(session, content, message):
-            return
 
         if receiver == session.username:
             raise ProtocolError(
@@ -381,13 +381,19 @@ class MessageRouter:
                 meta={"echo": True},
             )
         )
+        if content:
+            self._schedule_moderation_review(
+                sender=session.username or "",
+                content=content,
+                message_id=record["message_id"],
+                request_id=message.request_id,
+                receiver=receiver,
+            )
 
     def _handle_group_msg(self, session: ClientSession, message: ProtocolMessage) -> None:
         self._require_auth(session, message)
         group_id = message.group_id or _require_str(message.payload, "group_id", message.request_id)
         content, attachment = _message_body(message.payload, message.request_id)
-        if content and not self._moderate_or_warn(session, content, message, group_id=group_id):
-            return
 
         members = self.groups.member_usernames(group_id)
         if not members:
@@ -435,13 +441,24 @@ class MessageRouter:
             target.send(forward)
 
         ai_prompt = extract_ai_prompt(content) if content else None
-        if ai_prompt is not None:
-            self._schedule_ai_reply(
-                requester=session.username or "",
-                group_id=group_id,
-                prompt=ai_prompt,
-                attachments=[attachment] if attachment and attachment.get("kind") == "image" else None,
+        if content:
+            self._schedule_moderation_review(
+                sender=session.username or "",
+                content=content,
+                message_id=record["message_id"],
                 request_id=message.request_id,
+                group_id=group_id,
+                on_allowed=(
+                    lambda: self._schedule_ai_reply(
+                        requester=session.username or "",
+                        group_id=group_id,
+                        prompt=ai_prompt,
+                        attachments=[attachment] if attachment and attachment.get("kind") == "image" else None,
+                        request_id=message.request_id,
+                    )
+                    if ai_prompt is not None
+                    else None
+                ),
             )
 
     # --- file transfer ----------------------------------------------------
@@ -673,27 +690,7 @@ class MessageRouter:
             "recalled_at": recalled.get("recalled_at"),
             "recalled_by": session.username,
         }
-        notification = make_message(
-            MessageType.MESSAGE_RECALL,
-            sender="server",
-            receiver=record.get("receiver"),
-            group_id=record.get("group_id"),
-            payload=payload,
-            request_id=message.request_id,
-        )
-        if record.get("group_id"):
-            for member in self.groups.member_usernames(str(record["group_id"])):
-                target = self.users.get_session(member)
-                if target is not None:
-                    target.send(notification)
-        else:
-            recipients = {record.get("sender"), record.get("receiver")}
-            for username in recipients:
-                if not username:
-                    continue
-                target = self.users.get_session(str(username))
-                if target is not None:
-                    target.send(notification)
+        self._broadcast_recall(record=record, payload=payload, request_id=message.request_id)
 
     # --- group handlers --------------------------------------------------
 
@@ -971,34 +968,116 @@ class MessageRouter:
                 continue
             peer.send(notification)
 
-    def _moderate_or_warn(
+    def _schedule_moderation_review(
         self,
-        session: ClientSession,
-        content: str,
-        message: ProtocolMessage,
         *,
+        sender: str,
+        content: str,
+        message_id: str,
+        request_id: str,
+        receiver: str | None = None,
         group_id: str | None = None,
-    ) -> bool:
-        result = self.moderation.check(content)
-        if result.allowed:
-            return True
-
-        session.send(
-            make_message(
-                MessageType.MODERATION_WARNING,
-                sender="server",
-                receiver=session.username,
+        on_allowed: Callable[[], None] | None = None,
+    ) -> None:
+        future = self._moderation_executor.submit(self.moderation.check, content)
+        future.add_done_callback(
+            lambda done: self._finish_moderation_review(
+                done,
+                sender=sender,
+                message_id=message_id,
+                request_id=request_id,
+                receiver=receiver,
                 group_id=group_id,
-                payload={
-                    "action": result.action,
-                    "reason": result.reason,
-                    "message": "消息包含违规内容，已被拦截。",
-                    "matched_words": list(result.matched_words),
-                },
-                request_id=message.request_id,
+                on_allowed=on_allowed,
             )
         )
-        return False
+
+    def _finish_moderation_review(
+        self,
+        future,  # noqa: ANN001 - Future callback
+        *,
+        sender: str,
+        message_id: str,
+        request_id: str,
+        receiver: str | None = None,
+        group_id: str | None = None,
+        on_allowed: Callable[[], None] | None = None,
+    ) -> None:
+        try:
+            result = future.result()
+        except Exception:
+            logger.exception("moderation review failed for message %s", message_id)
+            return
+
+        if result.allowed:
+            if on_allowed is not None:
+                on_allowed()
+            return
+
+        warning = make_message(
+            MessageType.MODERATION_WARNING,
+            sender="server",
+            receiver=sender,
+            group_id=group_id,
+            payload={
+                "action": result.action,
+                "reason": result.reason,
+                "message": "消息未通过安全审查，已强制撤回。",
+                "message_id": message_id,
+                "matched_words": list(result.matched_words),
+                "categories": list(result.categories),
+            },
+            request_id=request_id,
+        )
+        sender_session = self.users.get_session(sender)
+        if sender_session is not None:
+            sender_session.send(warning)
+
+        try:
+            recalled = self.db.recall_message(message_id, "server:moderation")
+        except ValueError:
+            logger.warning("moderation tried to recall missing message %s", message_id)
+            return
+
+        self._broadcast_recall(
+            record={
+                "sender": sender,
+                "receiver": receiver,
+                "group_id": group_id,
+            },
+            payload={
+                "message_id": message_id,
+                "recalled": True,
+                "recalled_at": recalled.get("recalled_at"),
+                "recalled_by": "server:moderation",
+                "forced": True,
+                "reason": result.reason,
+            },
+            request_id=request_id,
+        )
+
+    def _broadcast_recall(self, *, record: dict[str, Any], payload: dict[str, Any], request_id: str) -> None:
+        notification = make_message(
+            MessageType.MESSAGE_RECALL,
+            sender="server",
+            receiver=record.get("receiver"),
+            group_id=record.get("group_id"),
+            payload=payload,
+            request_id=request_id,
+        )
+        if record.get("group_id"):
+            for member in self.groups.member_usernames(str(record["group_id"])):
+                target = self.users.get_session(member)
+                if target is not None:
+                    target.send(notification)
+        else:
+            recipients = {record.get("sender"), record.get("receiver")}
+            for username in recipients:
+                if not username:
+                    continue
+                target = self.users.get_session(str(username))
+                if target is not None:
+                    target.send(notification)
 
     def _schedule_ai_reply(
         self,

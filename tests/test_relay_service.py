@@ -10,7 +10,7 @@ from common.protocol import MessageType, ProtocolMessage, make_message
 from server.relay import ChatRelayService
 from server.server import ChatServer
 from server.web_server import WebChatServer, encode_client_ws_text, read_ws_message
-from tests._server_helpers import TestClient, free_port
+from tests._server_helpers import AllowAllModeration, TestClient, free_port
 
 
 class WebSocketTestClient:
@@ -98,6 +98,7 @@ class RelayServiceTest(unittest.TestCase):
             db_path=Path(self.tmpdir.name) / "chat.db",
             heartbeat_timeout=10.0,
             heartbeat_interval=1.0,
+            moderation=AllowAllModeration(),
         )
         self.tcp_server = ChatServer(
             host="127.0.0.1",

@@ -40,6 +40,7 @@
 - 统一中继服务支持 CLI 客户端和浏览器 GUI 客户端互相实时私聊、群聊、同步在线状态，并共享同一套历史记录。
 - 支持正式文件传输：使用 `file_start -> file_chunk -> file_end` 分片上传，服务端落盘保存并通过受控下载链接访问。
 - 支持消息撤回：发送者可撤回自己发送的私聊/群聊消息，历史记录中隐藏原内容。
+- 支持发言安全审查：用户消息先正常发送，再由服务端异步调用 OpenAI-compatible API 审查；违规时向发送者警告并强制撤回。
 - 客户端本地历史仅用于当前会话显示，重启后以服务端 `history_request` / `history_response` 为准。
 
 ## AI API 配置
@@ -68,6 +69,21 @@ OPENAI_MODEL=gpt-4o-mini
 ```
 
 如果没有配置 API Key，`@AI` 会返回本地降级回复，方便离线开发和测试。
+
+## 安全审查配置
+
+服务端会对每条文字私聊/群聊发言做异步安全审查。消息会先保存并转发；如果 API 判定不合理或不安全，服务端会发送 `moderation_warning` 给发送者，并广播 `message_recall` 强制撤回该消息。
+
+默认复用上面的 OpenAI-compatible / MiMo 配置。也可以单独配置审查接口：
+
+```text
+MODERATION_API_KEY=your-api-key
+MODERATION_BASE_URL=https://api.openai.com/v1
+MODERATION_MODEL=gpt-4o-mini
+MODERATION_TIMEOUT_SECONDS=10
+```
+
+如果没有可用 API Key，服务端会退回本地关键词审查，关键词可通过 `AI_WECHAT_BAD_WORDS=词1,词2` 扩展。
 
 ## 启动服务端
 

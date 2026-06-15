@@ -12,6 +12,28 @@ from common.protocol import (
     encode_frame,
     make_message,
 )
+from server.moderation import ModerationResult
+
+
+class AllowAllModeration:
+    def check(self, content: str) -> ModerationResult:
+        return ModerationResult(allowed=True)
+
+
+class KeywordRecallModeration:
+    def __init__(self, keyword: str) -> None:
+        self.keyword = keyword
+
+    def check(self, content: str) -> ModerationResult:
+        if self.keyword not in content:
+            return ModerationResult(allowed=True)
+        return ModerationResult(
+            allowed=False,
+            action="recall",
+            reason="message failed safety review",
+            matched_words=(self.keyword,),
+            categories=("keyword",),
+        )
 
 
 class TestClient:
