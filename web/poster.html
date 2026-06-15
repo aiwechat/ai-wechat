@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-WeChat Poster</title>
+  <style>
+    :root {
+      --blue: #2f638f;
+      --blue-dark: #214f75;
+      --gold: #f2cd20;
+      --orange: #f39a22;
+      --ink: #071421;
+      --muted: #35536a;
+      --line: #b7c9d8;
+      --paper: #ffffff;
+      --soft: #f7fbfe;
+      --soft-blue: #edf5fb;
+      --note: #fff4d4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #dde5ec;
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "SimSun", "PingFang SC", Arial, sans-serif;
+    }
+
+    .poster {
+      width: 1180px;
+      height: 1560px;
+      display: grid;
+      grid-template-rows: 124px 16px 320px 485px 485px 70px;
+      gap: 0;
+      padding: 0 24px 24px;
+      background: var(--blue);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+    }
+
+    header {
+      margin: 0 -24px;
+      padding: 22px 34px 14px;
+      background: var(--paper);
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-family: "SimSun", "Microsoft YaHei", serif;
+      font-size: 40px;
+      line-height: 1.12;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+
+    .subtitle {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .meta {
+      margin: 0;
+      font-size: 13px;
+      color: #243b53;
+    }
+
+    .stripe {
+      margin: 0 -24px;
+      background: var(--gold);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 0.76fr 1.48fr;
+      gap: 18px;
+      padding-top: 18px;
+    }
+
+    .modules {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      padding-top: 18px;
+      min-height: 0;
+    }
+
+    .panel {
+      position: relative;
+      min-height: 0;
+      padding: 15px 17px;
+      background: var(--paper);
+      border: 1px solid #d5e0e9;
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      text-align: center;
+      font-size: 19px;
+      line-height: 1.15;
+      font-weight: 900;
+    }
+
+    .tag {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 34px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      background: var(--orange);
+      color: white;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .summary {
+      height: calc(100% - 34px);
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .badge {
+      width: 82px;
+      height: 100px;
+      margin: auto;
+      display: grid;
+      place-items: center;
+      border-radius: 46% 46% 56% 56%;
+      background: linear-gradient(135deg, #52b7ff, #2368c8);
+      box-shadow: inset 0 0 0 7px rgba(255, 255, 255, 0.46);
+      color: #fff;
+      font-size: 34px;
+      font-weight: 900;
+    }
+
+    .bullets {
+      display: grid;
+      gap: 9px;
+      font-size: 13.4px;
+      line-height: 1.38;
+    }
+
+    .bullet {
+      margin: 0;
+      padding-left: 10px;
+      border-left: 4px solid var(--blue);
+    }
+
+    .arch {
+      padding-right: 152px;
+    }
+
+    .qr-slot {
+      position: absolute;
+      top: 14px;
+      right: 15px;
+      width: 118px;
+      height: 138px;
+      padding: 8px;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 6px;
+      background: #fff;
+      border: 1px solid var(--line);
+      z-index: 2;
+    }
+
+    .qr-box {
+      border: 2px solid #102a43;
+      background:
+        linear-gradient(90deg, #102a43 10px, transparent 10px) 0 0 / 22px 22px,
+        linear-gradient(#102a43 10px, transparent 10px) 0 0 / 22px 22px,
+        #fff;
+    }
+
+    .qr-slot span {
+      color: var(--muted);
+      text-align: center;
+      font-size: 10.5px;
+      line-height: 1.15;
+      font-weight: 800;
+    }
+
+    .arch-body {
+      height: calc(100% - 48px);
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 7px;
+      padding: 8px;
+      border: 1px dashed var(--line);
+      background: var(--soft);
+    }
+
+    .arch-body img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      border: 1px solid #cbd9e5;
+      background: #fff;
+    }
+
+    .note {
+      padding: 6px 9px;
+      background: var(--note);
+      border-left: 4px solid var(--orange);
+      font-size: 11.6px;
+      line-height: 1.25;
+    }
+
+    .role {
+      margin: 0 0 10px;
+      padding: 8px 10px;
+      background: var(--soft-blue);
+      border-left: 4px solid var(--blue);
+      color: #102a43;
+      font-size: 13.1px;
+      line-height: 1.34;
+      font-weight: 800;
+    }
+
+    .module-visual {
+      width: 100%;
+      height: 270px;
+      margin: 0 0 10px;
+      display: block;
+      object-fit: cover;
+      object-position: center;
+      border: 1px solid #c7d8e6;
+      background: #fff;
+    }
+
+    .stack {
+      padding: 10px;
+      display: grid;
+      gap: 9px;
+      border: 1px dashed var(--line);
+      background: var(--soft);
+    }
+
+    .stack-title {
+      margin: 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12.4px;
+      line-height: 1.25;
+      font-weight: 900;
+    }
+
+    footer {
+      display: grid;
+      place-items: center;
+      margin-top: 18px;
+      background: #fff;
+      color: var(--muted);
+      text-align: center;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .poster { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="poster" aria-label="AI-WeChat project poster">
+    <header>
+      <h1>基于 TCP 与 AI API 的分布式即时聊天系统设计</h1>
+      <p class="subtitle">AI-WeChat: Multi-platform Real-time Chat with Unified Relay, AI Assistant and Moderation</p>
+      <p class="meta">代码库逻辑抽象：客户端入口 → 帧协议传输 → 统一中继 → 消息路由 → 数据持久化 / AI / 审核 / 文件服务</p>
+    </header>
+    <div class="stripe"></div>
+
+    <section class="hero">
+      <article class="panel">
+        <h2>Project Summary</h2>
+        <div class="summary">
+          <div class="badge">AI</div>
+          <div class="bullets">
+            <p class="bullet">系统覆盖注册登录、在线状态、私聊、群聊、群组管理和历史拉取。</p>
+            <p class="bullet">CLI 与 Web GUI 共用统一中继核心，实现跨平台实时互通。</p>
+            <p class="bullet">扩展 AI 助手、API 内容审核、强制撤回、图片/语音和文件分片传输。</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel arch">
+        <span class="tag">★</span>
+        <h2>Overall System Architecture</h2>
+        <div class="qr-slot" aria-label="QR code placeholder">
+          <div class="qr-box"></div>
+          <span>QR Code<br>Repository / Demo</span>
+        </div>
+        <div class="arch-body">
+          <img src="poster-architecture.png" alt="AI-WeChat Overall Architecture">
+          <div class="note">总体亮点：多平台入口统一进入 Relay，路由层集中调度聊天、AI、审核、文件与数据库能力。</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="modules">
+      <article class="panel">
+        <span class="tag">1</span>
+        <h2>多平台接入与统一中继</h2>
+        <p class="role">CLI、桌面浏览器与手机浏览器进入同一个 Relay，共享在线会话、群组状态和历史数据。</p>
+        <img class="module-visual" src="poster-module-access.png" alt="Multi-platform access module illustration">
+      </article>
+
+      <article class="panel">
+        <span class="tag">2</span>
+        <h2>用户会话与即时通信核心</h2>
+        <p class="role">消息路由集中处理注册登录、私聊、群聊、群组操作、心跳和历史请求。</p>
+        <img class="module-visual" src="poster-module-chat.png" alt="Chat core module illustration">
+      </article>
+    </section>
+
+    <section class="modules">
+      <article class="panel">
+        <span class="tag">3</span>
+        <h2>协议、存储与消息增强</h2>
+        <p class="role">统一 Envelope 把 TCP 帧、WebSocket 文本、数据库记录和前端展示连接成一条稳定链路。</p>
+        <img class="module-visual" src="poster-module-protocol.png" alt="Protocol and storage module illustration">
+      </article>
+
+      <article class="panel">
+        <span class="tag">4</span>
+        <h2>AI 助手与内容安全审查</h2>
+        <p class="role">@AI 回复和内容审核都放入后台线程池，保证聊天主流程先响应，再异步补充智能能力。</p>
+        <img class="module-visual" src="poster-module-ai.png" alt="AI assistant and moderation module illustration">
+      </article>
+    </section>
+
+    <footer>
+      End-to-End Logic: Multi-platform Client → Unified Relay → Message Router → AI / Moderation / File Service ｜ Evaluation: 60-client concurrency, chat/file/AI/moderation tests ｜ Future Direction: richer mobile UX, stronger moderation policy, resumable transfer and deployment monitoring
+    </footer>
+  </main>
+</body>
+</html>
