@@ -203,6 +203,20 @@ GUI 中常用能力：
 - 撤回：自己发送的消息旁会显示“撤回”，点击后双方或群成员会看到消息已撤回。
 - 多模态 AI：在群聊输入 `@AI 分析一下这张图`，再选择图片并发送。
 
+## 安装为手机 / 桌面应用（PWA）
+
+浏览器 GUI 同时是一个 PWA（渐进式 Web 应用），可以像原生应用一样安装到手机主屏幕或电脑桌面，带独立窗口、应用图标，静态资源离线缓存。
+
+- **Android（Chrome / Edge）**：打开站点后，点击浏览器菜单中的“安装应用”或“添加到主屏幕”。
+- **iOS（Safari）**：点击分享按钮，选择“添加到主屏幕”。
+- **桌面（Chrome / Edge）**：地址栏右侧会出现安装图标，点击即可安装为独立窗口应用。
+
+注意事项：
+
+- 除 `localhost` / `127.0.0.1` 外，浏览器要求 **HTTPS** 才会启用 Service Worker 与安装提示。局域网手机调试时，可用反向代理（如 Caddy、nginx）加自签或内网证书，或使用 `chrome://flags` 中的 `unsafely-treat-insecure-origin-as-secure` 仅作本地调试。
+- 静态资源由 `web/sw.js` 缓存；修改前端文件后，需将 `sw.js` 中的 `CACHE_VERSION` 加一，客户端才会刷新缓存。
+- 应用图标位于 `web/icons/`，可运行 `python3 scripts/generate_icons.py` 重新生成（需要 Pillow 与 numpy）。
+
 ## 运行测试
 
 ```bash

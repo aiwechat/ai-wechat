@@ -13,6 +13,8 @@
   --line: #e8e8ea;
   --line-strong: #d4d4d8;
   --accent: #18181b;
+  --accent-strong: #52525b;
+  --accent-soft: rgba(24, 24, 27, 0.05);
   --accent-ink: #fafafa;
   --active-bg: rgba(24, 24, 27, 0.06);
   --ring: rgba(24, 24, 27, 0.12);
@@ -22,9 +24,11 @@
   --bubble-other-bg: #ffffff;
   --bubble-other-ink: #18181b;
   --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.05);
-  --shadow-lg: 0 20px 60px rgba(24, 24, 27, 0.10);
+  --shadow-md: 0 6px 18px rgba(24, 24, 27, 0.07);
+  --shadow-lg: 0 24px 70px rgba(24, 24, 27, 0.12);
   --serif: "Iowan Old Style", "Palatino Linotype", "Songti SC", Georgia, serif;
   --sans: "Inter", "Segoe UI", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+  --mono: "SF Mono", "Cascadia Code", Consolas, "Courier New", monospace;
 }
 
 html[data-theme="dark"] {
@@ -42,6 +46,8 @@ html[data-theme="dark"] {
   --line: #2a2a2e;
   --line-strong: #3f3f46;
   --accent: #ededed;
+  --accent-strong: #a1a1aa;
+  --accent-soft: rgba(237, 237, 237, 0.07);
   --accent-ink: #161618;
   --active-bg: rgba(255, 255, 255, 0.08);
   --ring: rgba(237, 237, 237, 0.16);
@@ -50,8 +56,9 @@ html[data-theme="dark"] {
   --bubble-self-meta: rgba(22, 22, 24, 0.55);
   --bubble-other-bg: #242428;
   --bubble-other-ink: #ededed;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 28px 80px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -66,6 +73,18 @@ body {
   background: var(--canvas);
   overflow: hidden;
   transition: background 200ms ease, color 200ms ease;
+}
+
+/* Soft ambient wash behind the shell. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 12% 0%, var(--accent-soft), transparent 70%),
+    radial-gradient(50% 45% at 95% 100%, var(--accent-soft), transparent 70%);
 }
 
 button,
@@ -100,7 +119,7 @@ h2 {
   height: calc(100vh - 32px);
   margin: 16px auto;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
   background: var(--shell);
   box-shadow: var(--shadow-lg);
@@ -140,7 +159,7 @@ h2 {
   height: 44px;
   padding: 0 10px;
   border: 0;
-  border-radius: 11px;
+  border-radius: 12px;
   background: transparent;
   color: var(--ink-soft);
   white-space: nowrap;
@@ -175,7 +194,7 @@ h2 {
 .app-shell[data-section="user"] .rail-item[data-section="user"],
 .app-shell[data-section="group"] .rail-item[data-section="group"],
 .app-shell[data-section="chat"] .rail-item[data-section="chat"] {
-  color: var(--ink);
+  color: var(--accent);
   background: var(--active-bg);
 }
 
@@ -265,11 +284,12 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   height: 8px;
   border-radius: 50%;
   background: var(--ink-faint);
-  transition: background 200ms ease;
+  transition: background 200ms ease, box-shadow 200ms ease;
 }
 
 .app-shell.connected .status-dot {
-  background: var(--ink);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .side-body {
@@ -299,6 +319,11 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   font-size: 28px;
   font-weight: 700;
   line-height: 1.05;
+  background: linear-gradient(120deg, var(--ink) 30%, var(--accent-strong) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .brand p {
@@ -312,7 +337,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
 .panel,
 .profile {
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 14px;
   padding: 13px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
@@ -367,6 +392,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   color: var(--accent-ink);
   font-weight: 700;
   flex: none;
+  box-shadow: 0 2px 8px var(--ring);
 }
 
 .tabs {
@@ -375,7 +401,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   padding: 3px;
   margin-bottom: 11px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--surface-2);
 }
 
@@ -390,7 +416,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   border-radius: 10px;
   color: var(--ink);
   background: var(--surface);
-  transition: transform 130ms ease, border-color 130ms ease, background 130ms ease, box-shadow 130ms ease, color 130ms ease;
+  transition: transform 130ms ease, border-color 130ms ease, background 130ms ease, box-shadow 130ms ease, color 130ms ease, opacity 130ms ease;
 }
 
 .small-button:hover,
@@ -400,6 +426,13 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
 .copy-button:hover {
   border-color: var(--line-strong);
   background: var(--active-bg);
+}
+
+.small-button:active,
+.primary-button:active,
+.send-button:active,
+.icon-button:active {
+  transform: scale(0.97);
 }
 
 .tab {
@@ -420,6 +453,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
   color: var(--accent-ink);
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 2px 10px var(--ring);
 }
 
 .tab.active:hover,
@@ -427,6 +461,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
 .send-button:hover {
   color: var(--accent-ink);
   background: var(--accent);
+  border-color: var(--accent);
   opacity: 0.92;
 }
 
@@ -442,6 +477,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
 
 .send-button {
   padding: 0 20px;
+  border-radius: 12px;
 }
 
 .small-button {
@@ -460,7 +496,7 @@ html[data-theme="dark"] .theme-toggle .icon-moon {
 }
 
 .icon-button:hover {
-  color: var(--ink);
+  color: var(--accent);
 }
 
 label {
@@ -479,6 +515,7 @@ textarea {
   color: var(--ink);
   background: var(--surface);
   outline: none;
+  transition: border-color 130ms ease, box-shadow 130ms ease;
 }
 
 input::placeholder,
@@ -520,11 +557,12 @@ textarea:focus {
   gap: 10px;
   width: 100%;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: 12px;
   padding: 10px;
   color: var(--ink);
   background: transparent;
   text-align: left;
+  transition: border-color 130ms ease, background 130ms ease;
 }
 
 .group-row {
@@ -586,8 +624,16 @@ textarea:focus {
 
 .conversation-item > span:last-child {
   flex: none;
-  color: var(--ink-faint);
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 99px;
+  color: var(--accent);
+  background: var(--accent-soft);
   font-size: 12px;
+  font-weight: 600;
 }
 
 /* ---------- chat pane ---------- */
@@ -639,12 +685,12 @@ textarea:focus {
 
 .message-list::-webkit-scrollbar,
 .side-body::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 
 .message-list::-webkit-scrollbar-thumb,
 .side-body::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 99px;
   background: var(--line-strong);
   background-clip: padding-box;
@@ -652,18 +698,20 @@ textarea:focus {
 
 .message-row {
   display: flex;
+  align-items: flex-start;
+  gap: 9px;
   margin: 11px 0;
-  animation: messageIn 170ms ease both;
+  animation: messageIn 190ms cubic-bezier(0.21, 1.02, 0.73, 1) both;
 }
 
 @keyframes messageIn {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(7px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -675,10 +723,34 @@ textarea:focus {
   justify-content: center;
 }
 
+.msg-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-top: 2px;
+  border-radius: 50%;
+  color: #fafafa;
+  background: var(--ink-faint);
+  font-size: 14px;
+  font-weight: 700;
+  flex: none;
+  user-select: none;
+}
+
+.msg-avatar.ai {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--line-strong);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
 .bubble {
   max-width: min(680px, 78%);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px;
+  border-top-left-radius: 6px;
   padding: 11px 13px;
   background: var(--bubble-other-bg);
   color: var(--bubble-other-ink);
@@ -692,15 +764,21 @@ textarea:focus {
   background: var(--bubble-self-bg);
   color: var(--bubble-self-ink);
   border-color: transparent;
+  border-radius: 16px;
+  border-top-right-radius: 6px;
+  box-shadow: var(--shadow-md);
 }
 
 .system .bubble {
   max-width: 90%;
   color: var(--ink-soft);
   background: var(--surface-2);
-  border-color: var(--line);
+  border-color: transparent;
+  border-radius: 99px;
   text-align: center;
   font-size: 13px;
+  padding: 6px 14px;
+  box-shadow: none;
 }
 
 .bubble-meta {
@@ -728,10 +806,101 @@ textarea:focus {
   color: var(--bubble-self-meta);
 }
 
+.recall-button:hover {
+  text-decoration: underline;
+}
+
 .message-text.recalled {
   color: var(--ink-soft);
   font-style: italic;
 }
+
+/* ---------- markdown (AI replies) ---------- */
+
+.message-markdown {
+  white-space: normal;
+}
+
+.message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown pre,
+.message-markdown blockquote,
+.message-markdown table {
+  margin: 8px 0;
+}
+
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4 {
+  margin: 12px 0 6px;
+  font-size: 1.05em;
+  line-height: 1.3;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 22px;
+}
+
+.message-markdown li {
+  margin: 3px 0;
+}
+
+.message-markdown code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.message-markdown pre {
+  overflow-x: auto;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.message-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.message-markdown blockquote {
+  padding: 2px 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--ink-soft);
+}
+
+.message-markdown a {
+  color: var(--accent-strong);
+}
+
+.message-markdown table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.message-markdown th,
+.message-markdown td {
+  border: 1px solid var(--line);
+  padding: 5px 9px;
+}
+
+/* ---------- attachments & files ---------- */
 
 .file-message {
   display: inline-flex;
@@ -741,9 +910,19 @@ textarea:focus {
   color: inherit;
   text-decoration: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 9px 11px;
   background: var(--surface-2);
+  transition: border-color 130ms ease;
+}
+
+.file-message:hover {
+  border-color: var(--accent);
+}
+
+.self .bubble .file-message {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .file-message strong,
@@ -760,9 +939,17 @@ textarea:focus {
   font-size: 12px;
 }
 
+.self .bubble .file-message small {
+  color: var(--bubble-self-meta);
+}
+
 .file-icon {
   font-size: 20px;
   color: var(--ink-soft);
+}
+
+.self .bubble .file-icon {
+  color: var(--bubble-self-meta);
 }
 
 .message-text + .attachment {
@@ -778,7 +965,7 @@ textarea:focus {
   max-width: min(360px, 100%);
   max-height: 360px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   object-fit: contain;
   background: var(--surface-2);
 }
@@ -813,7 +1000,16 @@ textarea:focus {
   color: var(--accent-ink);
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--ring);
+  animation: recordPulse 1.4s ease infinite;
+}
+
+@keyframes recordPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  50% {
+    box-shadow: 0 0 0 7px var(--accent-soft);
+  }
 }
 
 .composer {
@@ -843,6 +1039,14 @@ textarea:focus {
   resize: none;
   max-height: 128px;
   min-height: 42px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+.composer textarea:focus {
+  background: var(--surface);
+  border-color: var(--accent);
 }
 
 .history-icon {
@@ -966,15 +1170,27 @@ textarea:focus {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom));
   z-index: 40;
   max-width: min(520px, calc(100vw - 32px));
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 10px 16px;
+  border-radius: 99px;
   color: var(--canvas);
   background: var(--ink);
   box-shadow: var(--shadow-lg);
   transform: translateX(-50%);
+  animation: toastIn 180ms cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .hidden {
@@ -1008,9 +1224,9 @@ textarea:focus {
   }
 
   .rail {
-    width: 56px;
+    width: calc(56px + env(safe-area-inset-left));
     flex: none;
-    padding: 12px 8px;
+    padding: calc(12px + env(safe-area-inset-top)) 8px 12px calc(8px + env(safe-area-inset-left));
   }
 
   .rail-label {
@@ -1033,6 +1249,10 @@ textarea:focus {
     height: 100%;
   }
 
+  .side-head {
+    padding-top: calc(16px + env(safe-area-inset-top));
+  }
+
   .chat-pane {
     position: fixed;
     inset: 0;
@@ -1044,13 +1264,19 @@ textarea:focus {
     display: grid;
   }
 
+  /* On phones the chat pane is a full-screen overlay that hides the rail and
+     conversation list, so reveal the back button to get back to the panel. */
+  .mobile-only {
+    display: grid;
+  }
+
   .brand h1 {
     font-size: 25px;
   }
 
   .chat-header {
     min-height: 64px;
-    padding: 10px 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
   }
 
   .chat-header h2 {
@@ -1068,8 +1294,18 @@ textarea:focus {
     padding: 14px 12px 18px;
   }
 
+  .msg-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .msg-avatar.ai {
+    font-size: 10px;
+  }
+
   .bubble {
-    max-width: 92%;
+    max-width: 88%;
   }
 
   .composer {
@@ -1116,5 +1352,17 @@ textarea:focus {
   .composer textarea {
     min-height: 40px;
     max-height: 96px;
+  }
+}
+
+/* Installed as a PWA: let the shell fill the window edge to edge. */
+@media (display-mode: standalone) {
+  .app-shell,
+  .app-shell[data-rail="expanded"] {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
   }
 }
