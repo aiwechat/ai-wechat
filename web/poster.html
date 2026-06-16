@@ -6,17 +6,17 @@
   <title>AI-WeChat Poster</title>
   <style>
     :root {
-      --blue: #2f638f;
-      --blue-dark: #214f75;
-      --gold: #f2cd20;
-      --orange: #f39a22;
-      --ink: #071421;
-      --muted: #35536a;
-      --line: #b7c9d8;
+      --blue: #25636f;
+      --blue-dark: #123f4b;
+      --gold: #caa24a;
+      --orange: #c57f3a;
+      --ink: #071a1f;
+      --muted: #3b5961;
+      --line: #c7d8dc;
       --paper: #ffffff;
-      --soft: #f7fbfe;
-      --soft-blue: #edf5fb;
-      --note: #fff4d4;
+      --soft: #f7fbfb;
+      --soft-blue: #edf6f6;
+      --note: #f7edcf;
     }
 
     * {
@@ -28,54 +28,66 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      background: #dde5ec;
+      background: #d8e3e4;
       color: var(--ink);
       font-family: "Microsoft YaHei", "SimSun", "PingFang SC", Arial, sans-serif;
     }
 
     .poster {
       width: 1180px;
-      height: 1560px;
+      height: 2045px;
       display: grid;
-      grid-template-rows: 124px 16px 320px 485px 485px 70px;
+      grid-template-rows: 140px 10px 410px 435px 435px 555px 70px;
       gap: 0;
       padding: 0 24px 24px;
-      background: var(--blue);
+      background: linear-gradient(180deg, #173f4b 0%, #25636f 46%, #1f5360 100%);
       box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
       overflow: hidden;
     }
 
     header {
       margin: 0 -24px;
-      padding: 22px 34px 14px;
-      background: var(--paper);
+      padding: 20px 42px 14px;
+      background:
+        linear-gradient(135deg, #0d2f3a 0%, #19505c 58%, #2c7178 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: inset 0 -18px 34px rgba(7, 20, 33, 0.18);
       text-align: center;
     }
 
     h1 {
       margin: 0 0 8px;
       font-family: "SimSun", "Microsoft YaHei", serif;
-      font-size: 40px;
+      font-size: 42px;
       line-height: 1.12;
       letter-spacing: 0;
       font-weight: 900;
+      color: #ffffff;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
     }
 
     .subtitle {
-      margin: 0 0 8px;
+      margin: 0 0 9px;
       font-size: 17px;
       font-weight: 800;
+      color: #f5f8fb;
     }
 
     .meta {
-      margin: 0;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 5px 14px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
       font-size: 13px;
-      color: #243b53;
+      color: #eaf2f8;
     }
 
     .stripe {
       margin: 0 -24px;
-      background: var(--gold);
+      background: linear-gradient(90deg, #a97835, #d9b764 50%, #a97835);
     }
 
     .hero {
@@ -97,8 +109,10 @@
       position: relative;
       min-height: 0;
       padding: 15px 17px;
-      background: var(--paper);
-      border: 1px solid #d5e0e9;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      border: 1px solid rgba(205, 219, 229, 0.95);
+      border-radius: 16px;
+      box-shadow: 0 12px 28px rgba(9, 31, 53, 0.2);
       overflow: hidden;
     }
 
@@ -122,35 +136,21 @@
       color: white;
       font-size: 16px;
       font-weight: 900;
+      border-bottom-left-radius: 14px;
     }
 
     .summary {
       height: calc(100% - 34px);
       display: grid;
-      grid-template-columns: 96px 1fr;
-      gap: 14px;
-      align-items: center;
-    }
-
-    .badge {
-      width: 82px;
-      height: 100px;
-      margin: auto;
-      display: grid;
-      place-items: center;
-      border-radius: 46% 46% 56% 56%;
-      background: linear-gradient(135deg, #52b7ff, #2368c8);
-      box-shadow: inset 0 0 0 7px rgba(255, 255, 255, 0.46);
-      color: #fff;
-      font-size: 34px;
-      font-weight: 900;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
     }
 
     .bullets {
       display: grid;
-      gap: 9px;
-      font-size: 13.4px;
-      line-height: 1.38;
+      gap: 7px;
+      font-size: 12.8px;
+      line-height: 1.32;
     }
 
     .bullet {
@@ -159,22 +159,77 @@
       border-left: 4px solid var(--blue);
     }
 
+    .team-work {
+      min-height: 0;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-rows: auto repeat(5, minmax(0, 1fr));
+      gap: 5px;
+      background: var(--soft-blue);
+      border: 1px solid #d4e2ed;
+      border-left: 4px solid var(--orange);
+      border-radius: 12px;
+    }
+
+    .team-work-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--blue-dark);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .team-work-title span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .team-row {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 8px;
+      align-items: start;
+      margin: 0;
+      color: #102a43;
+      font-size: 10.8px;
+      line-height: 1.18;
+      font-weight: 800;
+    }
+
+    .team-row strong {
+      color: var(--ink);
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
     .arch {
-      padding-right: 152px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 120px;
+      grid-template-rows: auto minmax(0, 1fr);
+      column-gap: 14px;
+      align-items: start;
+    }
+
+    .arch h2 {
+      grid-column: 1;
+      grid-row: 1;
     }
 
     .qr-slot {
-      position: absolute;
-      top: 14px;
-      right: 15px;
-      width: 118px;
-      height: 138px;
+      grid-column: 2;
+      grid-row: 1 / 3;
+      width: 120px;
+      height: 150px;
       padding: 8px;
       display: grid;
       grid-template-rows: 1fr auto;
       gap: 6px;
       background: #fff;
       border: 1px solid var(--line);
+      border-radius: 12px;
       z-index: 2;
     }
 
@@ -195,21 +250,25 @@
     }
 
     .arch-body {
-      height: calc(100% - 48px);
+      grid-column: 1;
+      grid-row: 2;
+      height: 100%;
       display: grid;
       grid-template-rows: minmax(0, 1fr) auto;
       gap: 7px;
       padding: 8px;
       border: 1px dashed var(--line);
+      border-radius: 12px;
       background: var(--soft);
     }
 
     .arch-body img {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
       object-position: center;
       border: 1px solid #cbd9e5;
+      border-radius: 10px;
       background: #fff;
     }
 
@@ -217,6 +276,7 @@
       padding: 6px 9px;
       background: var(--note);
       border-left: 4px solid var(--orange);
+      border-radius: 8px;
       font-size: 11.6px;
       line-height: 1.25;
     }
@@ -226,6 +286,47 @@
       padding: 8px 10px;
       background: var(--soft-blue);
       border-left: 4px solid var(--blue);
+      border-radius: 10px;
+      color: #102a43;
+      font-size: 13.1px;
+      line-height: 1.34;
+      font-weight: 800;
+    }
+
+    .module-card {
+      display: grid;
+      grid-template-rows: 35px 58px minmax(0, 1fr);
+      gap: 10px;
+      align-content: start;
+    }
+
+    .module-card h2 {
+      margin: 0;
+      align-self: center;
+    }
+
+    .module-card .role {
+      height: 58px;
+      margin: 0;
+      display: grid;
+      align-items: center;
+    }
+
+    .module-card .module-visual {
+      height: 100%;
+      min-height: 0;
+      object-fit: contain;
+    }
+
+    .future-role {
+      margin: 0;
+      padding: 10px 12px;
+      min-height: 56px;
+      display: grid;
+      place-items: center start;
+      background: var(--soft-blue);
+      border-left: 4px solid var(--blue);
+      border-radius: 10px;
       color: #102a43;
       font-size: 13.1px;
       line-height: 1.34;
@@ -234,12 +335,13 @@
 
     .module-visual {
       width: 100%;
-      height: 270px;
-      margin: 0 0 10px;
+      height: 255px;
+      margin: 0;
       display: block;
       object-fit: cover;
       object-position: center;
       border: 1px solid #c7d8e6;
+      border-radius: 12px;
       background: #fff;
     }
 
@@ -260,15 +362,79 @@
       font-weight: 900;
     }
 
+    .future-body {
+      height: calc(100% - 48px);
+      display: grid;
+      gap: 11px;
+      min-height: 0;
+    }
+
+    .evaluation-visual {
+      height: 395px;
+      object-fit: contain;
+    }
+
+    .future-list {
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .future-item {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 9px;
+      align-items: start;
+      padding: 10px 11px;
+      background: var(--soft-blue);
+      border: 1px solid #d4e2ed;
+      border-radius: 12px;
+    }
+
+    .future-index {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      background: var(--blue);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+      border-radius: 8px;
+    }
+
+    .future-item strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--blue-dark);
+      font-size: 12.4px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    .future-item span {
+      display: block;
+      color: #102a43;
+      font-size: 11.2px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
     footer {
       display: grid;
       place-items: center;
       margin-top: 18px;
+      padding: 8px 12px;
       background: #fff;
+      border-radius: 12px;
       color: var(--muted);
       text-align: center;
-      font-size: 12px;
-      line-height: 1.35;
+      font-size: 11.2px;
+      line-height: 1.25;
+    }
+
+    .footer-line {
+      margin: 0;
     }
 
     @media print {
@@ -290,17 +456,23 @@
       <article class="panel">
         <h2>Project Summary</h2>
         <div class="summary">
-          <div class="badge">AI</div>
           <div class="bullets">
             <p class="bullet">系统覆盖注册登录、在线状态、私聊、群聊、群组管理和历史拉取。</p>
             <p class="bullet">CLI 与 Web GUI 共用统一中继核心，实现跨平台实时互通。</p>
             <p class="bullet">扩展 AI 助手、API 内容审核、强制撤回、图片/语音和文件分片传输。</p>
           </div>
+          <div class="team-work">
+            <div class="team-work-title">Team Contribution </div>
+            <p class="team-row"><strong>成员一</strong><span>1</span></p>
+            <p class="team-row"><strong>成员二</strong><span>2</span></p>
+            <p class="team-row"><strong>成员三</strong><span>3</span></p>
+            <p class="team-row"><strong>成员四</strong><span>4</span></p>
+            <p class="team-row"><strong>成员五</strong><span>5</span></p>
+          </div>
         </div>
       </article>
 
       <article class="panel arch">
-        <span class="tag">★</span>
         <h2>Overall System Architecture</h2>
         <div class="qr-slot" aria-label="QR code placeholder">
           <div class="qr-box"></div>
@@ -314,14 +486,14 @@
     </section>
 
     <section class="modules">
-      <article class="panel">
+      <article class="panel module-card">
         <span class="tag">1</span>
         <h2>多平台接入与统一中继</h2>
         <p class="role">CLI、桌面浏览器与手机浏览器进入同一个 Relay，共享在线会话、群组状态和历史数据。</p>
         <img class="module-visual" src="poster-module-access.png" alt="Multi-platform access module illustration">
       </article>
 
-      <article class="panel">
+      <article class="panel module-card">
         <span class="tag">2</span>
         <h2>用户会话与即时通信核心</h2>
         <p class="role">消息路由集中处理注册登录、私聊、群聊、群组操作、心跳和历史请求。</p>
@@ -330,14 +502,14 @@
     </section>
 
     <section class="modules">
-      <article class="panel">
+      <article class="panel module-card">
         <span class="tag">3</span>
         <h2>协议、存储与消息增强</h2>
         <p class="role">统一 Envelope 把 TCP 帧、WebSocket 文本、数据库记录和前端展示连接成一条稳定链路。</p>
         <img class="module-visual" src="poster-module-protocol.png" alt="Protocol and storage module illustration">
       </article>
 
-      <article class="panel">
+      <article class="panel module-card">
         <span class="tag">4</span>
         <h2>AI 助手与内容安全审查</h2>
         <p class="role">@AI 回复和内容审核都放入后台线程池，保证聊天主流程先响应，再异步补充智能能力。</p>
@@ -345,9 +517,41 @@
       </article>
     </section>
 
-    <footer>
-      End-to-End Logic: Multi-platform Client → Unified Relay → Message Router → AI / Moderation / File Service ｜ Evaluation: 60-client concurrency, chat/file/AI/moderation tests ｜ Future Direction: richer mobile UX, stronger moderation policy, resumable transfer and deployment monitoring
-    </footer>
+    <section class="modules">
+      <article class="panel">
+        <span class="tag">5</span>
+        <h2>Evaluation: 模块测试与系统验证</h2>
+        <p class="role">从单元测试、集成测试到 60 客户端并发压力测试，验证协议、路由、文件、AI 与审核链路的稳定性。</p>
+        <img class="module-visual evaluation-visual" src="poster-module-evaluation.jpg" alt="Evaluation and test coverage module illustration">
+      </article>
+
+      <article class="panel">
+        <span class="tag">6</span>
+        <h2>Future Work: 后续改进方向</h2>
+        <div class="future-body">
+          <p class="future-role">在现有统一中继、AI 助手、安全审查和文件传输基础上，进一步增强智能性、可治理性和可扩展性。</p>
+          <div class="future-list">
+            <div class="future-item">
+              <div class="future-index">01</div>
+              <div><strong>AI context memory & streaming replies</strong><span>加入群聊上下文摘要、连续对话记忆和流式输出，提升 AI 交互体验。</span></div>
+            </div>
+            <div class="future-item">
+              <div class="future-index">02</div>
+              <div><strong>Fine-grained moderation policy</strong><span>支持分级规则、群管理员配置、人工复核和安全审计日志。</span></div>
+            </div>
+            <div class="future-item">
+              <div class="future-index">03</div>
+              <div><strong>Resumable file transfer</strong><span>扩展断点续传、失败重试、秒传校验和下载进度管理。</span></div>
+            </div>
+            <div class="future-item">
+              <div class="future-index">04</div>
+              <div><strong>Scalable deployment & monitoring</strong><span>引入 PostgreSQL、Redis Pub/Sub、异步 I/O、日志追踪和连接监控。</span></div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
   </main>
 </body>
 </html>
