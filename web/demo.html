@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI WeChat — 融合 AI 智能助手的分布式即时聊天系统</title>
+  <style>
+    :root {
+      --canvas: #f4f4f5;
+      --surface: #ffffff;
+      --surface-2: #f4f4f5;
+      --ink: #18181b;
+      --ink-soft: #52525b;
+      --ink-faint: #a1a1aa;
+      --line: #e8e8ea;
+      --line-strong: #d4d4d8;
+      --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.05);
+      --shadow-md: 0 4px 12px rgba(24, 24, 27, 0.06);
+      --shadow-lg: 0 20px 60px rgba(24, 24, 27, 0.10);
+      --sans: "Inter", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system, sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--sans);
+      color: var(--ink);
+      background: var(--canvas);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Nav ────────────────────────────── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .nav-brand { font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; }
+    .nav-links { display: flex; gap: 24px; list-style: none; }
+    .nav-links a {
+      text-decoration: none; color: var(--ink-soft); font-size: 0.875rem;
+      transition: color 160ms;
+    }
+    .nav-links a:hover { color: var(--ink); }
+
+    .hero-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 0.875rem; font-weight: 600;
+      text-decoration: none;
+      color: var(--surface); background: var(--ink);
+      transition: opacity 160ms;
+    }
+    .hero-btn:hover { opacity: 0.85; }
+
+    /* ── Hero ───────────────────────────── */
+    .hero {
+      max-width: 1200px; margin: 0 auto; padding: 80px 24px 64px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 48px;
+      align-items: center; text-align: left;
+    }
+    .hero-text { min-width: 0; }
+    .hero-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 500; letter-spacing: 0.04em;
+      color: var(--ink-soft); background: var(--surface-2);
+      border: 1px solid var(--line);
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2.25rem, 5vw, 3.5rem);
+      font-weight: 800; letter-spacing: -0.02em;
+      line-height: 1.15; margin-bottom: 16px;
+    }
+    .hero h1 span { color: var(--ink-soft); font-weight: 400; }
+    .hero p {
+      font-size: 1.125rem; color: var(--ink-soft);
+      max-width: 600px; margin: 0 0 32px;
+    }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .hero-gif {
+      aspect-ratio: 16 / 10;
+      border-radius: 16px; border: 1px solid var(--line);
+      background: var(--surface);
+      position: relative; overflow: hidden;
+      box-shadow: var(--shadow-lg);
+    }
+    .hero-gif img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    .hero-gif-placeholder {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px;
+      color: var(--ink-faint); font-size: 0.8125rem; text-align: center;
+      padding: 16px; line-height: 1.5;
+    }
+    .hero-gif-placeholder strong { color: var(--ink-soft); display: block; margin-bottom: 4px; }
+
+    /* ── GIF Slot ────────────────────────── */
+    .gif-slot {
+      aspect-ratio: 16 / 10;
+      border-radius: 10px; border: 1px dashed var(--line-strong);
+      background: var(--surface-2);
+      margin-bottom: 16px; overflow: hidden;
+      position: relative;
+    }
+    .gif-slot img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    .gif-slot-label {
+      position: absolute; inset: 0; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; color: var(--ink-faint); font-size: 0.75rem;
+      pointer-events: none; text-align: center; padding: 12px;
+      line-height: 1.4;
+    }
+    .gif-slot-label strong { color: var(--ink-soft); font-size: 0.8125rem; }
+    .gif-slot.has-gif { border-style: solid; border-color: var(--line); }
+    .gif-slot.has-gif .gif-slot-label { display: none; }
+
+    .hero-btn-outline {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 0.875rem; font-weight: 600;
+      text-decoration: none;
+      color: var(--ink); border: 1px solid var(--line-strong);
+      transition: background 160ms;
+    }
+    .hero-btn-outline:hover { background: var(--surface-2); }
+
+    /* ── Sections ───────────────────────── */
+    section { padding: 64px 24px; }
+    .section-inner { max-width: 1200px; margin: 0 auto; }
+
+    .section-label {
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em;
+      color: var(--ink-faint); text-transform: uppercase; margin-bottom: 8px;
+    }
+    .section-title {
+      font-size: 2rem; font-weight: 700; letter-spacing: -0.01em;
+      margin-bottom: 12px;
+    }
+    .section-desc {
+      font-size: 1rem; color: var(--ink-soft); max-width: 560px; margin-bottom: 40px;
+    }
+
+    /* ── Feature Grid ───────────────────── */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 12px; padding: 28px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 200ms, transform 160ms;
+    }
+    .card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+
+    .card-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--surface-2); border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px; font-size: 1.25rem;
+    }
+    .card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+    .card p { font-size: 0.875rem; color: var(--ink-soft); line-height: 1.55; }
+
+    /* ── Architecture ───────────────────── */
+    .arch {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 16px; padding: 40px;
+      box-shadow: var(--shadow-sm);
+    }
+    .arch-flow {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 16px;
+      font-size: 0.875rem; font-weight: 600;
+    }
+    .arch-node {
+      padding: 12px 20px; border-radius: 10px;
+      border: 1px solid var(--line-strong); background: var(--surface-2);
+      white-space: nowrap;
+    }
+    .arch-node.high { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+    .arch-arrow { color: var(--ink-faint); font-size: 1.25rem; }
+    .arch-sub {
+      margin-top: 32px; display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;
+    }
+    .arch-sub-item {
+      padding: 14px 16px; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--surface-2);
+      font-size: 0.8125rem; font-weight: 500;
+    }
+    .arch-sub-item strong { display: block; margin-bottom: 2px; }
+
+    /* ── Tech Tags ──────────────────────── */
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .tag {
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 0.75rem; font-weight: 500;
+      border: 1px solid var(--line); background: var(--surface-2);
+      color: var(--ink-soft);
+    }
+
+    /* ── Code Block ─────────────────────── */
+    .code-block {
+      background: var(--ink); color: var(--surface);
+      padding: 20px 24px; border-radius: 12px;
+      font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+      font-size: 0.8125rem; line-height: 1.7;
+      overflow-x: auto; margin-top: 24px;
+    }
+    .code-block .dim { color: var(--ink-faint); }
+
+    /* ── Footer ─────────────────────────── */
+    footer {
+      border-top: 1px solid var(--line); padding: 32px 24px;
+      text-align: center; font-size: 0.8125rem; color: var(--ink-faint);
+    }
+
+    /* ── Responsive ─────────────────────── */
+    @media (max-width: 800px) {
+      .hero { grid-template-columns: 1fr; text-align: center; padding: 48px 16px 40px; }
+      .hero p { margin-left: auto; margin-right: auto; }
+      .hero-actions { justify-content: center; }
+      .hero-gif { max-width: 480px; margin: 0 auto; }
+    }
+    @media (max-width: 640px) {
+      section { padding: 40px 16px; }
+      .grid { grid-template-columns: 1fr; }
+      .arch { padding: 20px; }
+      .arch-flow { flex-direction: column; }
+      .arch-arrow { transform: rotate(90deg); }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ NAV ═══════════════ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">AI WeChat</div>
+    <ul class="nav-links">
+      <li><a href="#features">功能</a></li>
+      <li><a href="#architecture">架构</a></li>
+      <li><a href="#quickstart">快速开始</a></li>
+      <li><a href="#tech">技术栈</a></li>
+    </ul>
+    <a class="hero-btn" href="https://net.woftom.online">打开应用</a>
+  </div>
+</nav>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<header class="hero">
+  <div class="hero-text">
+    <div class="hero-badge">🚀 计算机网络课程项目</div>
+    <h1>AI <span>WeChat</span></h1>
+    <p>
+      融合 AI 智能助手的分布式即时聊天系统。<br>
+      支持 CLI 终端与浏览器 GUI 多端互通、实时私聊群聊、文件传输和智能问答。
+    </p>
+    <div class="hero-actions">
+      <a class="hero-btn" href="https://net.woftom.online">打开 Web 应用</a>
+      <a class="hero-btn-outline" href="https://github.com/aiwechat/net-project" target="_blank" rel="noopener">
+        GitHub 仓库
+      </a>
+    </div>
+  </div>
+  <div class="hero-gif" id="heroGif">
+    <div class="hero-gif-placeholder">
+      <strong>🎬 应用演示</strong>
+      将 GIF 文件保存为<br><code>gifs/hero-demo.gif</code>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════ FEATURES ═══════════════ -->
+<section id="features">
+  <div class="section-inner">
+    <div class="section-label">核心能力</div>
+    <h2 class="section-title">功能一览</h2>
+    <p class="section-desc">
+      从注册登录到 AI 助手，覆盖即时通讯的完整链路。所有功能通过统一协议协同工作，CLI 与浏览器客户端共享同一会话空间。
+    </p>
+
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-icon">👤</div>
+        <h3>用户注册与登录</h3>
+        <p>密码使用 PBKDF2 加盐哈希安全存储。支持单点登录，新连接自动踢出旧会话，防止账号共享。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <h3>一对一私聊</h3>
+        <p>在线消息实时转发，离线消息持久化落盘。每条消息附带回执确认，确保可靠投递。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">👥</div>
+        <h3>群组聊天</h3>
+        <p>支持创建群组、加入群组、退出群组和查看成员列表。消息在群内广播，新成员可查看历史记录。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <h3>AI 智能助手</h3>
+        <p>在聊天中输入 <strong>@AI</strong> 即可与 AI 对话。支持纯文本问答与多模态图片分析，配置 OpenAI 兼容 API。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📎</div>
+        <h3>文件传输</h3>
+        <p>支持图片、语音、通用文件分片上传（file_start → file_chunk → file_end）。服务端落盘保存，通过受控链接下载。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">↩️</div>
+        <h3>消息撤回</h3>
+        <p>发送者可一键撤回已发送的私聊或群聊消息，服务端广播撤回通知并在历史记录中隐藏原内容。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🛡️</div>
+        <h3>内容安全审查</h3>
+        <p>消息先正常发送，服务端异步调用 API 审查。违规消息自动强制撤回并向发送者发出警告。无 API 时回退本地关键词过滤。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🟢</div>
+        <h3>在线状态广播</h3>
+        <p>用户上下线时实时广播 USER_STATUS 消息，所有在线用户即刻看到状态变化。同步展示当前在线人数。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">💓</div>
+        <h3>心跳检测</h3>
+        <p>服务端后台线程定期扫描连接，超时未响应的连接自动清理并广播离线状态，保持在线用户列表准确。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">📜</div>
+        <h3>聊天历史</h3>
+        <p>服务端 SQLite 持久化所有消息。客户端可随时拉取任意会话的历史记录，本地缓存仅用于当前会话显示。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🖥️</div>
+        <h3>多端互通</h3>
+        <p>CLI 命令行客户端与浏览器 GUI 通过统一中继服务共享在线会话表，互相实时私聊、群聊、同步在线状态。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🌓</div>
+        <h3>日夜主题</h3>
+        <p>支持浅色与深色双主题，自动跟随系统偏好，手动切换后本地持久化。移动端与桌面端体验一致。</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ ARCHITECTURE ═══════════════ -->
+<section id="architecture" style="background: var(--surface-2);">
+  <div class="section-inner">
+    <div class="section-label">系统架构</div>
+    <h2 class="section-title">设计概览</h2>
+    <p class="section-desc">
+      分层架构，协议统一。TCP 与 WebSocket 接入同一消息路由核心，共享数据库与在线用户表。
+    </p>
+
+    <div class="arch">
+      <div class="arch-flow">
+        <div class="arch-node">🖥 CLI 客户端</div>
+        <span class="arch-arrow">→</span>
+        <div class="arch-node high">TCP 网关<br><small style="font-weight:400;opacity:0.65">4 字节长度前缀 + JSON</small></div>
+        <span class="arch-arrow">→</span>
+        <div class="arch-node high">消息路由核心<br><small style="font-weight:400;opacity:0.65">message_router.py</small></div>
+        <span class="arch-arrow">→</span>
+        <div class="arch-node high">SQLite<br><small style="font-weight:400;opacity:0.65">database.py</small></div>
+        <span class="arch-arrow">←</span>
+        <div class="arch-node high">WebSocket 网关<br><small style="font-weight:400;opacity:0.65">web_server.py</small></div>
+        <span class="arch-arrow">←</span>
+        <div class="arch-node">🌐 浏览器 GUI</div>
+      </div>
+
+      <div class="arch-sub">
+        <div class="arch-sub-item">
+          <strong>user_manager</strong> 在线用户注册中心，管理 username ↔ TCP 连接映射
+        </div>
+        <div class="arch-sub-item">
+          <strong>group_manager</strong> 群组业务封装，创建 / 加入 / 退出 / 列出成员
+        </div>
+        <div class="arch-sub-item">
+          <strong>heartbeat</strong> 后台心跳扫描线程，定期检测超时连接并清理
+        </div>
+        <div class="arch-sub-item">
+          <strong>ai_service</strong> 调用 OpenAI 兼容 API，支持文本问答与多模态分析
+        </div>
+        <div class="arch-sub-item">
+          <strong>moderation</strong> 异步安全审查，API 判定 + 本地关键词回退
+        </div>
+        <div class="arch-sub-item">
+          <strong>relay_service</strong> 统一启动入口，TCP + Web 共享同一会话空间
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ QUICK START ═══════════════ -->
+<section id="quickstart">
+  <div class="section-inner">
+    <div class="section-label">快速开始</div>
+    <h2 class="section-title">启动服务</h2>
+    <p class="section-desc">
+      一行命令启动统一中继服务，同时支持 CLI 客户端和浏览器 GUI，两端共享在线用户和聊天历史。
+    </p>
+
+    <div class="code-block">
+      <span class="dim"># 启动统一中继服务（TCP + Web）</span><br>
+      python3 -m server.relay_service \<br>
+      &nbsp;&nbsp;--tcp-host 0.0.0.0 --tcp-port 9000 \<br>
+      &nbsp;&nbsp;--web-host 0.0.0.0 --web-port 8080<br><br>
+      <span class="dim"># CLI 连接</span><br>
+      python3 -m client.ui --host 127.0.0.1 --port 9000<br><br>
+      <span class="dim"># 浏览器访问</span><br>
+      <span class="dim"># 打开 http://127.0.0.1:8080</span>
+    </div>
+
+    <p style="margin-top:16px;font-size:0.875rem;color:var(--ink-soft);">
+      配置 <code>.env</code> 文件即可启用 AI 助手和安全审查，详情见 README。
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════ TECH ═══════════════ -->
+<section id="tech" style="background: var(--surface-2);">
+  <div class="section-inner">
+    <div class="section-label">技术栈</div>
+    <h2 class="section-title">核心技术</h2>
+    <p class="section-desc">项目采用 Python 全栈实现，通信协议自定义设计。</p>
+
+    <div class="grid" style="margin-top:24px;">
+      <div class="card">
+        <h3>通信协议</h3>
+        <p>4 字节长度前缀 + UTF-8 JSON 应用层帧格式，统一 ProtocolMessage 消息结构。支持粘包 / 拆包处理。</p>
+        <div class="tags">
+          <span class="tag">TCP</span><span class="tag">WebSocket</span><span class="tag">JSON</span><span class="tag">自定义协议</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>数据持久化</h3>
+        <p>SQLite 轻量级数据库，存储用户账户、群组信息、聊天记录和文件传输状态。密码 PBKDF2 加盐哈希。</p>
+        <div class="tags">
+          <span class="tag">SQLite</span><span class="tag">PBKDF2</span><span class="tag">CRUD</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>并发模型</h3>
+        <p>每连接一线程处理帧收发，后台心跳扫描独立线程。支持 60+ 客户端并发连接压力测试。</p>
+        <div class="tags">
+          <span class="tag">threading</span><span class="tag">socket</span><span class="tag">asyncio</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>AI 集成</h3>
+        <p>OpenAI 兼容 API 接口，支持 MiMo、GPT-4o 等模型。@AI 触发智能问答，支持多模态图片分析。</p>
+        <div class="tags">
+          <span class="tag">OpenAI API</span><span class="tag">MiMo</span><span class="tag">GPT-4o</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>前端</h3>
+        <p>纯原生 HTML / CSS / JavaScript，无框架依赖。响应式布局适配手机与桌面，支持深色主题切换。</p>
+        <div class="tags">
+          <span class="tag">HTML5</span><span class="tag">CSS3</span><span class="tag">Vanilla JS</span><span class="tag">WebSocket</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>测试覆盖</h3>
+        <p>单元测试覆盖协议编解码、数据库操作、集成流程、命令解析及 60 客户端并发压力测试。</p>
+        <div class="tags">
+          <span class="tag">unittest</span><span class="tag">集成测试</span><span class="tag">压力测试</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ SCENARIOS ═══════════════ -->
+<section id="scenarios">
+  <div class="section-inner">
+    <div class="section-label">使用场景</div>
+    <h2 class="section-title">典型交互流程</h2>
+    <p class="section-desc">以下是几个代表性的使用场景，展示系统的核心交互能力。</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="gif-slot" id="gif-login">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：注册登录与私聊</strong>
+            保存为 gifs/login-chat.gif
+          </div>
+        </div>
+        <div class="card-icon">🔐</div>
+        <h3>注册 → 登录 → 聊天</h3>
+        <p>
+          用户注册账号后登录，查看在线用户列表。选择目标用户发起私聊，消息实时送达。
+          若对方离线，消息自动持久化，待对方上线后推送。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-group">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：群组创建与群聊</strong>
+            保存为 gifs/group-chat.gif
+          </div>
+        </div>
+        <div class="card-icon">🏗️</div>
+        <h3>创建群组 → 邀请成员 → 群聊</h3>
+        <p>
+          创建群组获取群 ID，分享给其他用户加入。群内消息广播送达所有成员。
+          支持 @AI 触发智能问答，上传图片进行多模态分析。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-vision">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：图片上传与 AI 多模态</strong>
+            保存为 gifs/ai-vision.gif
+          </div>
+        </div>
+        <div class="card-icon">📸</div>
+        <h3>发送图片 → 多模态分析</h3>
+        <p>
+          选择图片上传至聊天，服务端接收并持久化。在群聊中使用 @AI 配合图片，
+          AI 助手自动分析图片内容并返回图文解读。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-recall">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：消息撤回与审核</strong>
+            保存为 gifs/recall-moderation.gif
+          </div>
+        </div>
+        <div class="card-icon">🔄</div>
+        <h3>消息撤回 → 内容审核</h3>
+        <p>
+          发送消息后可一键撤回。同时系统自动审查每条消息内容，
+          违规消息由服务端强制撤回并警告发送者，保障聊天环境安全。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-multi">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：多端互通</strong>
+            保存为 gifs/multi-device.gif
+          </div>
+        </div>
+        <div class="card-icon">📱</div>
+        <h3>多端互通</h3>
+        <p>
+          CLI 命令行客户端与浏览器 GUI 通过统一中继服务接入同一会话空间，
+          共享在线用户表和聊天历史，两边的用户可以互相实时私聊和群聊。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-file">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：文件传输</strong>
+            保存为 gifs/file-transfer.gif
+          </div>
+        </div>
+        <div class="card-icon">📂</div>
+        <h3>文件分享</h3>
+        <p>
+          选择任意文件上传至聊天，系统自动分片传输（每片 64KB）。
+          服务端落盘保存，接收方通过受控链接下载，支持最大 50MB 文件。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer>
+  <p>AI WeChat — 计算机网络课程项目</p>
+  <p style="margin-top:4px;">
+    Python · SQLite · TCP / WebSocket · OpenAI API · Vanilla JS
+  </p>
+  <p style="margin-top:8px;">
+    <a href="https://net.woftom.online" style="color:inherit;">打开 Web 应用</a> ·
+    <a href="https://github.com/aiwechat/net-project" style="color:inherit;" target="_blank" rel="noopener">GitHub</a>
+  </p>
+</footer>
+
+<script>
+  (function loadGifs() {
+    const slots = [
+      { id: "heroGif",         src: "gifs/hero-demo.gif",       isHero: true },
+      { id: "gif-login",       src: "gifs/login-chat.gif" },
+      { id: "gif-group",       src: "gifs/group-chat.gif" },
+      { id: "gif-vision",      src: "gifs/ai-vision.gif" },
+      { id: "gif-recall",      src: "gifs/recall-moderation.gif" },
+      { id: "gif-multi",       src: "gifs/multi-device.gif" },
+      { id: "gif-file",        src: "gifs/file-transfer.gif" },
+    ];
+
+    slots.forEach(({ id, src, isHero }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const img = new Image();
+      img.alt = "";
+      img.onload = function () {
+        if (isHero) {
+          // Replace placeholder children with the img
+          el.querySelector(".hero-gif-placeholder")?.remove();
+          el.appendChild(img);
+        } else {
+          el.classList.add("has-gif");
+          el.appendChild(img);
+        }
+      };
+      img.onerror = function () {
+        // GIF not yet recorded — leave placeholder visible
+      };
+      img.src = src;
+    });
+  })();
+</script>
+
+</body>
+</html>
