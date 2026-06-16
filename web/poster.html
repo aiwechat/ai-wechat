@@ -178,12 +178,11 @@
       z-index: 2;
     }
 
-    .qr-box {
+    .qr-img {
+      width: 100%;
+      height: auto;
+      display: block;
       border: 2px solid #102a43;
-      background:
-        linear-gradient(90deg, #102a43 10px, transparent 10px) 0 0 / 22px 22px,
-        linear-gradient(#102a43 10px, transparent 10px) 0 0 / 22px 22px,
-        #fff;
     }
 
     .qr-slot span {
@@ -302,9 +301,9 @@
       <article class="panel arch">
         <span class="tag">★</span>
         <h2>Overall System Architecture</h2>
-        <div class="qr-slot" aria-label="QR code placeholder">
-          <div class="qr-box"></div>
-          <span>QR Code<br>Repository / Demo</span>
+        <div class="qr-slot" aria-label="QR code">
+          <img class="qr-img" src="qrcode_net.woftom.online.png" alt="QR Code to Repository / Demo">
+          <span>扫描二维码<br>查看Demo和体验应用</span>
         </div>
         <div class="arch-body">
           <img src="poster-architecture.png" alt="AI-WeChat Overall Architecture">
