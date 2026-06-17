@@ -35,9 +35,9 @@
 
     .poster {
       width: 1180px;
-      height: 2000px;
+      height: 1900px;
       display: grid;
-      grid-template-rows: 140px 10px 410px 435px 435px 555px 70px;
+      grid-template-rows: 116px 10px 434px 435px 435px 455px 70px;
       gap: 0;
       padding: 0 24px 24px;
       background: linear-gradient(180deg, #173f4b 0%, #25636f 46%, #1f5360 100%);
@@ -58,7 +58,7 @@
     h1 {
       margin: 0 0 8px;
       font-family: "SimSun", "Microsoft YaHei", serif;
-      font-size: 42px;
+      font-size: 41px;
       line-height: 1.12;
       letter-spacing: 0;
       font-weight: 900;
@@ -67,8 +67,8 @@
     }
 
     .subtitle {
-      margin: 0 0 9px;
-      font-size: 17px;
+      margin: 0;
+      font-size: 21px;
       font-weight: 800;
       color: #f5f8fb;
     }
@@ -369,7 +369,7 @@
     }
 
     .evaluation-visual {
-      height: 395px;
+      height: 315px;
       object-fit: contain;
     }
 
@@ -459,10 +459,10 @@
       .poster {
         position: absolute;
         top: 0;
-        left: 48.9mm;
+        left: 35.8mm;
         width: 1180px;
-        height: 2000px;
-        transform: scale(1.5893);
+        height: 1900px;
+        transform: scale(1.673);
         transform-origin: top left;
         box-shadow: none;
       }
@@ -474,7 +474,6 @@
     <header>
       <h1>基于 TCP 与 AI API 的分布式即时聊天系统设计</h1>
       <p class="subtitle">AI-WeChat: Multi-platform Real-time Chat with Unified Relay, AI Assistant and Moderation</p>
-      <p class="meta">代码库逻辑抽象：客户端入口 → 帧协议传输 → 统一中继 → 消息路由 → 数据持久化 / AI / 审核 / 文件服务</p>
     </header>
     <div class="stripe"></div>
 
@@ -547,7 +546,7 @@
       <article class="panel">
         <span class="tag">5</span>
         <h2>Evaluation: 模块测试与系统验证</h2>
-        <p class="role">从单元测试、集成测试到 60 客户端并发压力测试，验证协议、路由、文件、AI 与审核链路的稳定性。</p>
+        <p class="role">围绕用户规模、文件类型、消息吞吐与收发比设计测试，验证多端并发、文件传输和 AI/审核链路。</p>
         <img class="module-visual evaluation-visual" src="poster-module-evaluation.jpg" alt="Evaluation and test coverage module illustration">
       </article>
 
