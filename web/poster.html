@@ -35,7 +35,7 @@
 
     .poster {
       width: 1180px;
-      height: 2045px;
+      height: 2000px;
       display: grid;
       grid-template-rows: 140px 10px 410px 435px 435px 555px 70px;
       gap: 0;
@@ -436,9 +436,36 @@
       margin: 0;
     }
 
+    @page {
+      size: A1 portrait;
+      margin: 0;
+    }
+
     @media print {
-      body { background: #fff; }
-      .poster { box-shadow: none; }
+      html,
+      body {
+        width: 594mm;
+        height: 841mm;
+        margin: 0;
+        background: #fff;
+        overflow: hidden;
+      }
+
+      body {
+        display: block;
+        position: relative;
+      }
+
+      .poster {
+        position: absolute;
+        top: 0;
+        left: 48.9mm;
+        width: 1180px;
+        height: 2000px;
+        transform: scale(1.5893);
+        transform-origin: top left;
+        box-shadow: none;
+      }
     }
   </style>
 </head>
@@ -462,11 +489,11 @@
           </div>
           <div class="team-work">
             <div class="team-work-title">Team Contribution </div>
-            <p class="team-row"><strong>成员一</strong><span>1</span></p>
-            <p class="team-row"><strong>成员二</strong><span>2</span></p>
-            <p class="team-row"><strong>成员三</strong><span>3</span></p>
-            <p class="team-row"><strong>成员四</strong><span>4</span></p>
-            <p class="team-row"><strong>成员五</strong><span>5</span></p>
+            <p class="team-row"><strong>王钧盛</strong><span>服务端开发与部署</span></p>
+            <p class="team-row"><strong>雷博琛</strong><span>客户端开发</span></p>
+            <p class="team-row"><strong>韩汶伯</strong><span>协议与数据库设计</span></p>
+            <p class="team-row"><strong>史浩廷</strong><span>AI助手与内容审核</span></p>
+            <p class="team-row"><strong>王金文</strong><span>文件传输、测试与实验报告</span></p>
           </div>
         </div>
       </article>
