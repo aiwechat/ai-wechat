@@ -256,6 +256,7 @@
   <div class="nav-inner">
     <div class="nav-brand">AI WeChat</div>
     <ul class="nav-links">
+      <li><a href="#scenarios">演示</a></li>
       <li><a href="#features">功能</a></li>
       <li><a href="#architecture">架构</a></li>
       <li><a href="#quickstart">快速开始</a></li>
@@ -288,6 +289,102 @@
     </div>
   </div>
 </header>
+
+<!-- ═══════════════ SCENARIOS ═══════════════ -->
+<section id="scenarios">
+  <div class="section-inner">
+    <div class="section-label">使用场景</div>
+    <h2 class="section-title">典型交互流程</h2>
+    <p class="section-desc">以下是几个代表性的使用场景，展示系统的核心交互能力。</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="gif-slot" id="gif-login">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：注册登录与私聊</strong>
+            保存为 gifs/login-chat.gif
+          </div>
+        </div>
+        <div class="card-icon">🔐</div>
+        <h3>注册 → 登录 → 聊天</h3>
+        <p>
+          用户注册账号后登录，查看在线用户列表。选择目标用户发起私聊，消息实时送达。
+          若对方离线，消息自动持久化，待对方上线后推送。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-group">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：群组创建与群聊</strong>
+            保存为 gifs/group-chat.gif
+          </div>
+        </div>
+        <div class="card-icon">🏗️</div>
+        <h3>创建群组 → 邀请成员 → 群聊</h3>
+        <p>
+          创建群组获取群 ID，分享给其他用户加入。群内消息广播送达所有成员。
+          支持 @AI 触发智能问答，上传图片进行多模态分析。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-vision">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：图片上传与 AI 多模态</strong>
+            保存为 gifs/ai-vision.gif
+          </div>
+        </div>
+        <div class="card-icon">📸</div>
+        <h3>发送图片 → 多模态分析</h3>
+        <p>
+          选择图片上传至聊天，服务端接收并持久化。在群聊中使用 @AI 配合图片，
+          AI 助手自动分析图片内容并返回图文解读。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-recall">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：消息撤回与审核</strong>
+            保存为 gifs/recall-moderation.gif
+          </div>
+        </div>
+        <div class="card-icon">🔄</div>
+        <h3>消息撤回 → 内容审核</h3>
+        <p>
+          发送消息后可一键撤回。同时系统自动审查每条消息内容，
+          违规消息由服务端强制撤回并警告发送者，保障聊天环境安全。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-multi">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：多端互通</strong>
+            保存为 gifs/multi-device.gif
+          </div>
+        </div>
+        <div class="card-icon">📱</div>
+        <h3>多端互通</h3>
+        <p>
+          CLI 命令行客户端与浏览器 GUI 通过统一中继服务接入同一会话空间，
+          共享在线用户表和聊天历史，两边的用户可以互相实时私聊和群聊。
+        </p>
+      </div>
+      <div class="card">
+        <div class="gif-slot" id="gif-file">
+          <div class="gif-slot-label">
+            <strong>🎬 录制：文件传输</strong>
+            保存为 gifs/file-transfer.gif
+          </div>
+        </div>
+        <div class="card-icon">📂</div>
+        <h3>文件分享</h3>
+        <p>
+          选择任意文件上传至聊天，系统自动分片传输（每片 64KB）。
+          服务端落盘保存，接收方通过受控链接下载，支持最大 50MB 文件。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ═══════════════ FEATURES ═══════════════ -->
 <section id="features">
@@ -499,102 +596,6 @@
         <div class="tags">
           <span class="tag">unittest</span><span class="tag">集成测试</span><span class="tag">压力测试</span>
         </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══════════════ SCENARIOS ═══════════════ -->
-<section id="scenarios">
-  <div class="section-inner">
-    <div class="section-label">使用场景</div>
-    <h2 class="section-title">典型交互流程</h2>
-    <p class="section-desc">以下是几个代表性的使用场景，展示系统的核心交互能力。</p>
-
-    <div class="grid">
-      <div class="card">
-        <div class="gif-slot" id="gif-login">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：注册登录与私聊</strong>
-            保存为 gifs/login-chat.gif
-          </div>
-        </div>
-        <div class="card-icon">🔐</div>
-        <h3>注册 → 登录 → 聊天</h3>
-        <p>
-          用户注册账号后登录，查看在线用户列表。选择目标用户发起私聊，消息实时送达。
-          若对方离线，消息自动持久化，待对方上线后推送。
-        </p>
-      </div>
-      <div class="card">
-        <div class="gif-slot" id="gif-group">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：群组创建与群聊</strong>
-            保存为 gifs/group-chat.gif
-          </div>
-        </div>
-        <div class="card-icon">🏗️</div>
-        <h3>创建群组 → 邀请成员 → 群聊</h3>
-        <p>
-          创建群组获取群 ID，分享给其他用户加入。群内消息广播送达所有成员。
-          支持 @AI 触发智能问答，上传图片进行多模态分析。
-        </p>
-      </div>
-      <div class="card">
-        <div class="gif-slot" id="gif-vision">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：图片上传与 AI 多模态</strong>
-            保存为 gifs/ai-vision.gif
-          </div>
-        </div>
-        <div class="card-icon">📸</div>
-        <h3>发送图片 → 多模态分析</h3>
-        <p>
-          选择图片上传至聊天，服务端接收并持久化。在群聊中使用 @AI 配合图片，
-          AI 助手自动分析图片内容并返回图文解读。
-        </p>
-      </div>
-      <div class="card">
-        <div class="gif-slot" id="gif-recall">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：消息撤回与审核</strong>
-            保存为 gifs/recall-moderation.gif
-          </div>
-        </div>
-        <div class="card-icon">🔄</div>
-        <h3>消息撤回 → 内容审核</h3>
-        <p>
-          发送消息后可一键撤回。同时系统自动审查每条消息内容，
-          违规消息由服务端强制撤回并警告发送者，保障聊天环境安全。
-        </p>
-      </div>
-      <div class="card">
-        <div class="gif-slot" id="gif-multi">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：多端互通</strong>
-            保存为 gifs/multi-device.gif
-          </div>
-        </div>
-        <div class="card-icon">📱</div>
-        <h3>多端互通</h3>
-        <p>
-          CLI 命令行客户端与浏览器 GUI 通过统一中继服务接入同一会话空间，
-          共享在线用户表和聊天历史，两边的用户可以互相实时私聊和群聊。
-        </p>
-      </div>
-      <div class="card">
-        <div class="gif-slot" id="gif-file">
-          <div class="gif-slot-label">
-            <strong>🎬 录制：文件传输</strong>
-            保存为 gifs/file-transfer.gif
-          </div>
-        </div>
-        <div class="card-icon">📂</div>
-        <h3>文件分享</h3>
-        <p>
-          选择任意文件上传至聊天，系统自动分片传输（每片 64KB）。
-          服务端落盘保存，接收方通过受控链接下载，支持最大 50MB 文件。
-        </p>
       </div>
     </div>
   </div>
